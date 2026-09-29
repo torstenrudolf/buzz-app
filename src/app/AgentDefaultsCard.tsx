@@ -275,6 +275,7 @@ function ModelChoice({
     const edit: AgentEdit = {
       name: "",
       systemPrompt: "",
+      sessionPolicy: current.sessionPolicy,
       workspace: state.data?.defaultWorkspace ?? "",
       harness: {
         command: harness.command,
