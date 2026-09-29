@@ -1,6 +1,18 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import type { EventTemplate } from "nostr-tools";
 import { communityDestination } from "../communities/destination";
+import {
+  audioDemuxer,
+  isHeic,
+  isVoiceNote,
+  videoDemuxer,
+} from "./video-preparation";
+import {
+  hostUpload,
+  UploadError,
+  UPLOAD_MAX_BYTES,
+  validateUploadResult,
+} from "./attachments";
 import { eventDto } from "./events";
 import { workflowHost, workflowRunsPath } from "../workflows/http";
 import { WORKFLOW_KINDS } from "../workflows/protocol";
@@ -73,7 +85,12 @@ export function nativeMediaUrl(url: string): string {
 
 /** Raw IPC bytes; native code hashes, signs and sends them to `PUT /upload`.
  * Aborting settles at once and tells native code to drop the request. */
-async function nativeUpload(origin: string, file: File, signal: AbortSignal) {
+async function nativeUpload(
+  origin: string,
+  file: File,
+  signal: AbortSignal,
+  preparation?: string,
+) {
   const bytes = await file.arrayBuffer();
   signal.throwIfAborted();
   const id = crypto.randomUUID();
@@ -97,6 +114,7 @@ async function nativeUpload(origin: string, file: File, signal: AbortSignal) {
           "x-buzz-upload-id": id,
           "x-buzz-community": origin,
           "x-buzz-content-type": file.type || "application/octet-stream",
+          ...(preparation ? { "x-buzz-preparation": preparation } : {}),
         },
       }),
       aborted,
@@ -108,6 +126,75 @@ async function nativeUpload(origin: string, file: File, signal: AbortSignal) {
   } finally {
     signal.removeEventListener("abort", abort);
   }
+}
+
+/** Preparation is performed and uploaded inside the host. Converted bytes never
+ * cross back into JS; only the validated relay descriptor does. */
+async function nativeAttachmentUpload(
+  origin: string,
+  file: File,
+  signal: AbortSignal,
+) {
+  signal.throwIfAborted();
+  if (!file.size || file.size > UPLOAD_MAX_BYTES) throw new UploadError("size");
+  const header = new Uint8Array(await file.slice(0, 4096).arrayBuffer());
+  signal.throwIfAborted();
+  const voice = isVoiceNote(file.name);
+  const heic = !voice && isHeic(header, file.name);
+  if (voice && file.size > 128 * 1024 * 1024) throw new UploadError("size");
+  const demuxer = voice
+    ? audioDemuxer(header)
+    : heic
+      ? "mov"
+      : videoDemuxer(header);
+  if (!demuxer) {
+    if (voice || file.type.startsWith("video/")) throw new UploadError("video");
+    return hostUpload(
+      (item, bounded) => nativeUpload(origin, item, bounded),
+      origin,
+    )(file, signal);
+  }
+  const bounded = AbortSignal.any([signal, AbortSignal.timeout(600_000)]);
+  const response = await nativeUpload(
+    origin,
+    file,
+    bounded,
+    `${heic ? "image" : voice ? "voice" : "video"}:${demuxer}`,
+  );
+  bounded.throwIfAborted();
+  if (!response.ok) {
+    let code: unknown;
+    try {
+      code = ((await response.json()) as { code?: unknown }).code;
+    } catch {
+      /* Relay errors need not be JSON. */
+    }
+    throw new UploadError(
+      code === "ffmpeg" ||
+        code === "size" ||
+        code === "capacity" ||
+        code === "image" ||
+        code === "video"
+        ? code
+        : "failed",
+    );
+  }
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    throw new UploadError("invalid");
+  }
+  const type = heic ? "image/jpeg" : "video/mp4";
+  const name = `${file.name.replace(/\.[^.]+$/, "") || "Attachment"}.${heic ? "jpg" : "mp4"}`;
+  bounded.throwIfAborted();
+  const size = (body as { size?: number } | null)?.size;
+  if (
+    typeof size !== "number" ||
+    (body as { type?: string } | null)?.type !== type
+  )
+    throw new UploadError("invalid");
+  return validateUploadResult(body, origin, size, name);
 }
 
 export function nativeRelaySigner(community: string): Signer {
@@ -199,6 +286,8 @@ export async function connectNativeTransport(
       signal.throwIfAborted();
       return response;
     }),
+    uploadAttachment: (file, signal) =>
+      nativeAttachmentUpload(origin, file, signal),
     writer: {
       ...writer,
       kinds: nativeWriteKinds,

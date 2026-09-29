@@ -102,9 +102,11 @@ and forwards only a bounded single `Range`; non-image/video/audio types (and SVG
 are served as downloads with `nosniff`. `relay_upload`
 hashes, signs (`upload` + `x`) and sends the exact bytes JavaScript passes it;
 shared TypeScript (`hostUpload`) owns limits, error mapping and descriptor
-validation. JavaScript never signs kind 24242. HEIC and non-MP4 video conversion
-remain dev-broker-only (ffmpeg), so those files upload unconverted and the relay
-may reject them. Repository HTTP, lifecycle and other
+validation. JavaScript never signs kind 24242. Packaged HEIC and video
+preparation uses fixed demuxers and ffmpeg arguments in the native host, then
+hashes and uploads only the converted bytes; JavaScript receives the descriptor,
+not the prepared file. ffmpeg must be installed on the computer.
+Repository HTTP, lifecycle and other
 broker-only helpers are not claimed by this adapter. NIP-FI assertion
 acquisition is not implemented, so deployments enforcing it are outside acceptance.
 Windows/Linux custody, credential migration and release-signing acceptance remain

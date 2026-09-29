@@ -11,6 +11,8 @@ use std::{
 use tokio::sync::oneshot;
 use url::Url;
 
+mod media_preparation;
+
 type Result<T> = std::result::Result<T, String>;
 const MAX_BODY: usize = 1024 * 1024;
 const MAX_RESPONSE: usize = 16 * 1024 * 1024;
@@ -554,14 +556,27 @@ pub(crate) async fn relay_upload(
     };
     // Tauri sets raw IPC `Content-Type` itself, so the file type travels separately.
     let kind = header("x-buzz-content-type");
-    let Some(cancelled) = uploads.start(id)? else {
+    let preparation = header("x-buzz-preparation").map(str::to_owned);
+    let Some(mut cancelled) = uploads.start(id)? else {
         return Err("Upload cancelled".into());
     };
     // Dropping the request future closes the connection, so a cancelled upload
     // stops sending and releases its buffer.
-    let result = tokio::select! {
-        result = upload(host.inner(), url, kind, body.clone()) => result,
-        _ = cancelled => Err("Upload cancelled".into()),
+    let result = if preparation.is_some() {
+        upload_prepared(
+            host.inner(),
+            url,
+            kind,
+            body.clone(),
+            preparation.as_deref(),
+            &mut cancelled,
+        )
+        .await
+    } else {
+        tokio::select! {
+            result = upload(host.inner(), url, kind, body.clone()) => result,
+            _ = &mut cancelled => Err("Upload cancelled".into()),
+        }
     };
     uploads.finish(id);
     result
@@ -571,6 +586,41 @@ pub(crate) async fn relay_upload(
 pub(crate) fn relay_upload_cancel(uploads: tauri::State<'_, Uploads>, id: String) -> Result<()> {
     uploads.cancel(upload_id(Some(&id))?);
     Ok(())
+}
+
+async fn upload_prepared(
+    host: &IdentityHost,
+    url: Url,
+    kind: Option<&str>,
+    body: Vec<u8>,
+    preparation: Option<&str>,
+    cancelled: &mut oneshot::Receiver<()>,
+) -> Result<RelayResponse> {
+    let Some(mode) = preparation else {
+        return upload(host, url, kind, body).await;
+    };
+    let (body, kind) = match media_preparation::prepare(body, mode, cancelled).await {
+        Ok(value) => value,
+        Err(code) => {
+            return Ok(RelayResponse {
+                status: if code == "capacity" {
+                    429
+                } else if code == "ffmpeg" {
+                    503
+                } else if code == "size" {
+                    413
+                } else {
+                    400
+                },
+                headers: BTreeMap::new(),
+                body: serde_json::json!({ "code": code }).to_string(),
+            })
+        }
+    };
+    tokio::select! {
+        result = upload(host, url, Some(kind), body) => result,
+        _ = cancelled => Err("Upload cancelled".into()),
+    }
 }
 
 async fn upload(
