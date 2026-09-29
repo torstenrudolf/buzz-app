@@ -1216,6 +1216,7 @@ for (const operation of ["save", "saveDefaults"] as const) {
             provider: "",
             model: "next",
             effort: "",
+            sessionPolicy: "channel",
             environment: {},
           })
     )?.catch((error: Error) => error);

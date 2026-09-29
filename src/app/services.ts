@@ -24,6 +24,7 @@ import { ConversationService } from "../features/conversation/service";
 import { createAppearance } from "../shared/theme/service";
 import { createCommunities } from "../features/communities/service";
 import { connectNativeTransport } from "../features/relay/native";
+import { createUpdates } from "../features/updates/updates";
 import { PanelsService } from "../features/panels/service";
 import { Context } from "@deepseek-ai/cordis";
 import { BrowserService } from "../features/browser/service";
@@ -35,6 +36,7 @@ import { withTimeout } from "../plugins/timeout";
 export function createServices() {
   const appearance = createAppearance();
   const shortcutBindings = createShortcutBindings();
+  const updates = createUpdates();
   const ctx = new Context();
   new HostService(ctx);
   const plugins = createPluginManager(ctx, {
@@ -98,9 +100,11 @@ export function createServices() {
     relay,
     communities,
     appearance,
+    updates,
     dispose() {
       identity?.dispose();
       appearance.dispose();
+      updates.dispose();
       shortcutBindings.dispose();
       // Start root cancellation without waiting for plugin-owned cleanup. Cordis
       // starts sibling effects independently; the runtime still owns replacement

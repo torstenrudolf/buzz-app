@@ -157,6 +157,12 @@ export function createWorkSessions(
     });
     check();
   }
+  /** Resolves once the channel list shows `id` with the expected membership.
+   * Admission never comes from the command's acknowledgment: the list must
+   * carry a relay-signed roster. When discovery has already made the list
+   * ready, that evidence arrives by an exact one-channel read first; otherwise,
+   * or when that read leaves the gate unsatisfied, the full viewer-roster
+   * discovery runs. Both apply through the same discovery path. */
   async function refresh(
     id: string,
     expected: {
@@ -167,12 +173,18 @@ export function createWorkSessions(
     sessionOnly = true,
   ) {
     writer(!sessionOnly);
+    let settled = false;
+    // Aborted once the gate decides, so a still-running exact read releases
+    // its reader slot instead of holding it until the connection closes.
+    const exact = new AbortController();
     const wait = new Promise<void>((resolve, reject) => {
       let unsubscribe = () => {};
       const done = (error?: Error) => {
+        settled = true;
         unsubscribe();
         clearTimeout(timer);
         signal.removeEventListener("abort", abort);
+        exact.abort();
         error ? reject(error) : resolve();
       };
       const abort = () => done(new Error("The community connection changed."));
@@ -213,7 +225,30 @@ export function createWorkSessions(
       if (signal.aborted) abort();
       else inspect(false); // An earlier roster error does not decide this retry.
     });
-    channels.refreshList?.();
+    // The gate may time out or abort while a read is in flight; its rejection
+    // stays observed here and is rethrown below.
+    const gate = wait.catch(() => {});
+    // The exact read extends a list discovery has already made ready. Any other
+    // status (idle, loading, error) needs the full pass to become ready at all,
+    // and that pass carries the new channel; the store's resolve would otherwise
+    // commit a ready list holding only this channel and, after a failed initial
+    // discovery, hide the error the user still needs to retry. The store also
+    // skips ids it already authorizes, so agent additions to a joined channel
+    // go straight to the full discovery below.
+    if (!settled && channels.list().status === "ready")
+      await Promise.race([
+        gate,
+        (async () => {
+          try {
+            await channels.resolve?.([id], {
+              signal: AbortSignal.any([signal, exact.signal]),
+            });
+          } catch {
+            // A failed or stale exact read leaves the decision to discovery.
+          }
+        })(),
+      ]);
+    if (!settled) channels.refreshList?.();
     await wait;
   }
   async function refreshMembership(id: string) {

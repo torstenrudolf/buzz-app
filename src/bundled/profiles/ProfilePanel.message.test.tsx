@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+import { stubAvatarBrowserApis } from "../../features/agents/avatar-testing";
+stubAvatarBrowserApis();
 import {
   act,
   cleanup,

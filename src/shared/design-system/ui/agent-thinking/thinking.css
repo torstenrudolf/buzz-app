@@ -1,0 +1,110 @@
+.badge-pill-root {
+  position: relative;
+}
+.badge-pill-canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 88px;
+  height: 88px;
+  transform-origin: top left;
+  pointer-events: none;
+}
+.badge-pill-cutout {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.badge-motion-artwork,
+.badge-pill-root {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.badge-pill-measure {
+  position: absolute;
+  visibility: hidden;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.badge-pill-ink {
+  position: absolute;
+  left: 74.8px;
+  top: 74.8px;
+  width: 22px;
+  height: 22px;
+  transform: translate(-50%, -50%);
+  background: var(--status-online);
+  border-radius: 7px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  pointer-events: none;
+}
+.badge-pill-dots {
+  display: flex;
+  gap: 4px;
+  padding-block: 2px;
+  opacity: 0;
+  transform: scale(var(--badge-detail-scale, 1));
+}
+.badge-pill-dots i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-inverse);
+  /* Arjun's typing preview: block/buzz-app#52, dfd28b512e52e9fc5a682a8785eaf30955f6611e. */
+  animation: badge-pill-typing-pulse 1.2s linear infinite;
+}
+.badge-pill-dots i:nth-child(2) {
+  animation-delay: 80ms;
+}
+.badge-pill-dots i:nth-child(3) {
+  animation-delay: 160ms;
+}
+.badge-pill-root:not([data-thinking]) .badge-pill-dots i {
+  animation-play-state: paused;
+}
+@keyframes badge-pill-typing-pulse {
+  0%,
+  40%,
+  100% {
+    opacity: 0.4;
+    transform: translateY(0);
+  }
+  20% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .badge-pill-dots i {
+    animation-name: badge-pill-typing-fade;
+  }
+}
+@keyframes badge-pill-typing-fade {
+  0%,
+  40%,
+  100% {
+    opacity: 0.55;
+  }
+  20% {
+    opacity: 0.85;
+  }
+}
+
+.badge-pill-ink {
+  transition: background-color 300ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.badge-pill-root[data-thinking] .badge-pill-ink {
+  background: var(--affordance-prominent);
+}
+@media (prefers-reduced-motion: reduce) {
+  .badge-pill-ink {
+    transition: none;
+  }
+}

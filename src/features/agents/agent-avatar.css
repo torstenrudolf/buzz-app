@@ -1,0 +1,20 @@
+.agent-motion-avatar {
+  position: relative;
+  display: inline-block;
+  flex: 0 0 auto;
+  width: 2rem;
+  height: 2rem;
+  overflow: visible;
+}
+.agent-motion-avatar[data-size="small"] {
+  width: 1.5rem;
+  height: 1.5rem;
+}
+.agent-motion-avatar[data-size="large"] {
+  width: 2.5rem;
+  height: 2.5rem;
+}
+.agent-motion-avatar[data-size="fill"] {
+  width: 100%;
+  height: 100%;
+}

@@ -146,9 +146,7 @@ async function openReport(row: HTMLElement) {
     name: "More message actions",
   });
   await user.click(trigger);
-  await user.click(
-    await screen.findByRole("menuitem", { name: "Report message" }),
-  );
+  await user.click(await screen.findByRole("menuitem", { name: "Report" }));
   await screen.findByRole("dialog", { name: "Report message" });
   return { user, trigger };
 }

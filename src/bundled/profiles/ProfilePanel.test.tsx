@@ -1,6 +1,9 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
+import { stubAvatarBrowserApis } from "../../features/agents/avatar-testing";
+stubAvatarBrowserApis();
 import userEvent from "@testing-library/user-event";
+import { createAgentActivity } from "../../features/agents/activity";
 import { createAgentControl } from "../../features/agents/control";
 import { controlFixture } from "../../features/agents/control-testing";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
@@ -305,6 +308,94 @@ it.each(["action", "initial read"])(
   },
 );
 
+it("offers the activity preview to known agents only, never to people", async () => {
+  const person = keypair();
+  const agent = keypair();
+  const localAgent = keypair();
+  const activity = createAgentActivity(true, vi.fn(), () => true);
+  const owner = createRelaySession({
+    viewer: key,
+    relayAuthor: keypair().pubkey,
+    media: () => undefined,
+    query: async () => [
+      profile(person, { name: "Plain person" }),
+      profile(agent, { name: "Declared agent", is_agent: true }),
+      profile(localAgent, { name: "Local agent" }),
+    ],
+    readAgentLibrary: async () => ({
+      definitions: [],
+      identities: [{ pubkey: localAgent.pubkey, name: "Local agent" }],
+    }),
+  });
+  const release = activity.queries.activate();
+  activity.state({
+    status: "connected",
+    routes: [{ id: "observer", status: "live", replay: "unknown" }],
+  });
+  const snapshot = {
+    status: "ready" as const,
+    generation: 1,
+    scope: `https://relay.example.test:${key}`,
+    viewer: key,
+    session: { ...owner.session, agentActivity: activity.queries },
+  };
+  const relay: RelayData = {
+    snapshot: () => snapshot,
+    subscribe: () => () => {},
+    retry() {},
+    disconnect() {},
+    clearCache: async () => {},
+  };
+  const context = {
+    channelId: "channel-a",
+    canOpen: () => true,
+    open: () => true,
+  };
+  const view = (pubkey: string) => (
+    <ProfilePanel
+      relay={relay}
+      target={profileTarget(pubkey) ?? ""}
+      context={context}
+      close={() => {}}
+    />
+  );
+  try {
+    const mounted = render(view(person.pubkey));
+    // The settled metadata read is the barrier: no agent evidence can follow it.
+    await screen.findByRole("heading", { name: "Plain person" });
+    expect(
+      screen.queryByRole("region", { name: "Activity preview" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "View activity" }),
+    ).not.toBeInTheDocument();
+    mounted.rerender(view(agent.pubkey));
+    await screen.findByRole("heading", { name: "Declared agent" });
+    expect(
+      await screen.findByRole("region", { name: "Activity preview" }),
+    ).toHaveTextContent("No activity yet");
+    expect(screen.getByRole("button", { name: "View activity" })).toBeEnabled();
+    mounted.rerender(view(localAgent.pubkey));
+    await screen.findByRole("heading", { name: "Local agent" });
+    await act(() => owner.session.agentChoices.refresh());
+    expect(owner.session.agentChoices.snapshot().identities).toEqual([
+      expect.objectContaining({ pubkey: localAgent.pubkey }),
+    ]);
+    expect(
+      owner.session.profiles.snapshot().get(localAgent.pubkey)?.isAgent,
+    ).not.toBe(true);
+    expect(
+      await screen.findByRole("region", { name: "Activity preview" }),
+    ).toHaveTextContent("No activity yet");
+    expect(screen.getByRole("button", { name: "View activity" })).toBeEnabled();
+  } finally {
+    cleanup();
+    release();
+    activity.dispose();
+    owner.dispose();
+  }
+});
+
 it.each(["ambiguous", "unmatched"])(
   "Info retains recovery for a known %s identity",
   async (kind) => {
@@ -373,3 +464,83 @@ it.each(["ambiguous", "unmatched"])(
     }
   },
 );
+
+it("exposes thinking in Profile Info while its identity artwork is decorative", async () => {
+  const agent = keypair();
+  const owner = createRelaySession({
+    viewer: key,
+    relayAuthor: keypair().pubkey,
+    media: () => undefined,
+    query: async () => [
+      profile(agent, { name: "Thinking agent", is_agent: true }),
+    ],
+  });
+  await owner.session.profiles.ensure([agent.pubkey]);
+  vi.spyOn(owner.session.presence, "status").mockReturnValue("online");
+  let activity = owner.session.agentActivity.snapshot();
+  const listeners = new Set<() => void>();
+  const session = {
+    ...owner.session,
+    agentActivity: {
+      ...owner.session.agentActivity,
+      snapshot: () => activity,
+      subscribe: (listener: () => void) => {
+        listeners.add(listener);
+        return () => {
+          listeners.delete(listener);
+        };
+      },
+    },
+  };
+  const snapshot = { status: "ready" as const, generation: 1, session };
+  const relay: RelayData = {
+    snapshot: () => snapshot,
+    subscribe: () => () => {},
+    retry() {},
+    disconnect() {},
+    clearCache: async () => {},
+  };
+  try {
+    render(
+      <ProfilePanel
+        relay={relay}
+        target={profileTarget(agent.pubkey) ?? ""}
+        close={() => {}}
+      />,
+    );
+    expect(
+      await screen.findByRole("heading", { name: "Thinking agent" }),
+    ).toBeTruthy();
+    const details = screen.getByRole("region", { name: "Profile details" });
+    expect(details).not.toHaveAccessibleDescription();
+    expect(document.querySelector(".agent-motion-avatar")).toHaveAttribute(
+      "aria-hidden",
+      "true",
+    );
+    act(() => {
+      activity = {
+        ...activity,
+        turns: [
+          {
+            agent: agent.pubkey,
+            channelId: "alpha",
+            turnId: "one",
+            timestamp: 0,
+            state: "working",
+          },
+        ],
+      };
+      for (const listener of listeners) listener();
+    });
+    expect(details).toHaveAccessibleDescription("Agent is thinking");
+    expect(screen.getByRole("img", { name: "Presence: Active" })).toBeTruthy();
+    act(() => {
+      activity = { ...activity, turns: [] };
+      for (const listener of listeners) listener();
+    });
+    expect(details).not.toHaveAccessibleDescription();
+  } finally {
+    cleanup();
+    owner.dispose();
+  }
+});

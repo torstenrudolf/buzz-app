@@ -81,6 +81,7 @@ pub(crate) fn spawn_config(agent: &Agent) -> Value {
         "databricks_filter": filter,
         "env": env,
         "effort": crate::agent_defaults::effort(agent),
+        "session_policy": agent.session_policy.unwrap_or_default(),
     })
 }
 

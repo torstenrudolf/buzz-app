@@ -91,7 +91,19 @@ export function createHeadPersistence(
       const tx = db.transaction(name, mode);
       let result: T;
       const timeout = setTimeout(() => {
-        tx.abort();
+        try {
+          tx.abort();
+        } catch (error) {
+          // Native completion can precede its queued event. Let that event
+          // settle the operation when the transaction can no longer abort.
+          if (
+            !(
+              error instanceof DOMException &&
+              error.name === "InvalidStateError"
+            )
+          )
+            reject(error);
+        }
       }, 2000);
       tx.oncomplete = () => {
         clearTimeout(timeout);

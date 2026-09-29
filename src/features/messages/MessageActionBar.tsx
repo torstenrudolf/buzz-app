@@ -34,7 +34,6 @@ export function MessageActionBar({
   link,
   copyText,
   quickControls,
-  branchControl,
   overflowItems,
   messageId,
   menuTriggerRef,
@@ -46,7 +45,6 @@ export function MessageActionBar({
   link?: string | undefined;
   copyText(): string;
   quickControls?: ReactNode;
-  branchControl?: ReactNode;
   overflowItems?: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -82,7 +80,6 @@ export function MessageActionBar({
         role="group"
         aria-label="Message actions"
       >
-        {branchControl}
         {quickControls}
         {onReply && (
           <IconButton
@@ -99,7 +96,7 @@ export function MessageActionBar({
             }}
           />
         )}
-        <span className={styles.copyLinkShortcut}>
+        <span>
           <IconButton
             aria-label="Copy link"
             title={link ? "Copy link" : "Message link unavailable"}
@@ -157,17 +154,6 @@ export function MessageActionBar({
                   <CopyIcon />
                 </MenuIcon>
                 Copy message
-              </MenuItem>
-              <MenuItem
-                disabled={!link || copying}
-                onClick={() => {
-                  if (link) void copy(() => link, "Link");
-                }}
-              >
-                <MenuIcon>
-                  <LinkIcon />
-                </MenuIcon>
-                Copy link
               </MenuItem>
               {overflowItems}
             </AfterMenuClose.Provider>

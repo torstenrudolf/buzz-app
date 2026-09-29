@@ -23,7 +23,14 @@ export function Textarea({
       disabled={disabled}
       autoFocus={autoFocus}
       ref={ref}
-      render={<textarea {...props} />}
+      render={
+        <textarea
+          autoCorrect={variant === "code" ? "off" : undefined}
+          autoCapitalize={variant === "code" ? "none" : undefined}
+          spellCheck={variant === "code" ? false : undefined}
+          {...props}
+        />
+      }
       data-buzz-ui=""
       className="buzz-textarea"
       data-variant={variant}

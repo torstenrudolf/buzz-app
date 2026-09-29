@@ -110,25 +110,3 @@ export function createAgentLibrary(
     },
   };
 }
-/** Match legacy buildUnifiedGroups, but show all linked keys rather than choosing
- * a runtime-dependent representative. Unknown archive evidence does not erase
- * library entries, and this grouping never supplies mention recipients. */
-export function groupAgentLibrary(
-  library: AgentLibrary,
-  archived: (key: string) => boolean,
-) {
-  const selected = new Set(library.definitions.map((row) => row.id));
-  const visible = library.identities.filter((row) => !archived(row.pubkey));
-  return {
-    groups: library.definitions.map((definition) => ({
-      ...definition,
-      identities: visible.filter(
-        (identity) => identity.definitionId === definition.id,
-      ),
-    })),
-    custom: visible.filter((row) => !row.definitionId),
-    unknown: visible.filter(
-      (row) => row.definitionId && !selected.has(row.definitionId),
-    ),
-  };
-}

@@ -13,16 +13,11 @@
   gap: var(--space-4);
   min-width: 0;
 }
-.withPortrait {
-  flex-direction: column;
-  align-items: stretch;
-}
 .portrait {
-  align-self: center;
-  width: min(100%, 16rem, 35vh);
-  aspect-ratio: 1;
-  overflow: hidden;
-  border-radius: var(--radius-card);
+  flex: 0 0 auto;
+  width: 5rem;
+  height: 5rem;
+  overflow: visible;
 }
 .identity h2 {
   margin: 0;

@@ -757,9 +757,9 @@ test("Projects → Messages keeps saved groups, selected channel, and scroll on 
     await expect(
       page.getByRole("textbox", { name: "Message #Beta", exact: true }),
     ).toBeVisible();
-    await page.waitForTimeout(300); // Keep the decode path held for the full interval.
     // Wall time does not guarantee RAF callbacks on a busy runner. Wait for
     // samples, not correct samples: every earlier frame stays in the assertion.
+    // The decode path stays held until finally, across all sampled frames.
     await page.waitForFunction(() => window.sidebarFrames.length > 3);
     const frames = await page.evaluate(() => {
       window.captureSidebar = false;
@@ -994,13 +994,9 @@ test("Move and Create stay available on Projects with Sessions disabled", async 
   await page.getByRole("button", { name: "Your profile", exact: true }).click();
   await page.getByRole("menuitem", { name: "Settings", exact: true }).click();
   await page.getByRole("button", { name: "Plugins", exact: true }).click();
-  const sessions = page
+  const toggle = page
     .getByRole("region", { name: "Plugins", exact: true })
-    .getByRole("article")
-    .filter({
-      has: page.getByRole("heading", { name: "Sessions", exact: true }),
-    });
-  const toggle = sessions.getByRole("switch", { name: "Enable Sessions" });
+    .getByRole("switch", { name: "Enable Sessions", exact: true });
   await toggle.click();
   await expect(toggle).toHaveAttribute("aria-checked", "false");
   await openPage(page, "Projects");

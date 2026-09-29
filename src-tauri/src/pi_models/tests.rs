@@ -149,6 +149,7 @@ async fn test_prompts_the_selected_model_and_reports_its_reply() {
     let args = std::fs::read_to_string(dir.path().join("args")).unwrap();
     assert!(args.contains("--no-session"), "{args}");
     assert!(args.contains("--no-tools"), "{args}");
+    assert!(!args.contains("--thinking off"), "{args}");
     assert!(
         args.ends_with("--provider openai --model ns/gpt\n"),
         "{args}"
@@ -177,6 +178,7 @@ async fn installed_pi_catalog_uses_production_context() {
         name: "Probe".into(),
         picture: None,
         system_prompt: String::new(),
+        session_policy: Some(None),
         workspace: dir.path().display().to_string(),
         harness: HarnessEdit {
             command: adapter,
@@ -214,6 +216,7 @@ async fn installed_pi_connection_test_uses_production_context() {
             name: "Probe".into(),
             picture: None,
             system_prompt: String::new(),
+            session_policy: Some(None),
             workspace: dir.path().display().to_string(),
             harness: HarnessEdit {
                 command: adapter.clone(),

@@ -131,7 +131,7 @@ function LiveSessions({
         select("");
       }}
       listStatus={
-        list.status === "loading" ? (
+        list.status === "loading" && !sessions.length ? (
           <p role="status">Loading sessions…</p>
         ) : list.status === "error" ? (
           <div role="alert">

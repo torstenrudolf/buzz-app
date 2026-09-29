@@ -185,16 +185,28 @@
   }
 
   .shell-header {
-    @apply flex h-14 shrink-0 items-center justify-between gap-3 pl-4 pr-2 sm:pr-4;
+    @apply flex shrink-0 items-center justify-between;
+    height: 48px;
+    padding-left: var(--space-4);
+    padding-right: var(--space-2);
+    gap: var(--space-2);
+    background: color-mix(in srgb, var(--bg-app) 72%, var(--surface-panel));
+  }
+  @media (min-width: 640px) {
+    .shell-header {
+      padding-right: var(--space-4);
+    }
   }
   .shell-communities {
     @apply flex min-w-0 items-center justify-start;
+    gap: var(--space-1);
+    padding-left: var(--space-4);
   }
   .shell-communities > .navigation-item {
     flex-shrink: 1;
   }
   .shell-header-mac .shell-communities {
-    padding-left: var(--space-16);
+    padding-left: calc(var(--space-16) + var(--space-4));
   }
   .shell-pages {
     @apply flex min-w-0 flex-col gap-1;
@@ -210,8 +222,28 @@
   .shell-navigation {
     display: contents;
   }
-  .shell-navigation-toggle {
-    display: none;
+  .shell-navigation[data-sidebar-collapsible] {
+    display: flex;
+    min-width: 0;
+    flex: none;
+    width: max-content;
+    max-width: max(calc(220px + var(--space-panel-gap)), calc(100% - 336px));
+    overflow: visible;
+    clip-path: none;
+    /* Release resize help only after expansion; contain content while moving. */
+    transition:
+      max-width var(--duration-settle) ease-in-out,
+      clip-path var(--duration-settle) step-end allow-discrete;
+  }
+  .shell-navigation[data-sidebar-collapsible][aria-hidden="true"] {
+    max-width: 0;
+    clip-path: inset(0);
+    transition-timing-function: ease-in-out, step-start;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .shell-navigation[data-sidebar-collapsible] {
+      transition: none;
+    }
   }
   .shell-body {
     @apply relative flex min-h-0 min-w-0 flex-1 pl-0 pr-2 pb-2 sm:pl-0 sm:pr-4 sm:pb-4;
@@ -230,12 +262,45 @@
   .shell-sidebar-default > * {
     @apply min-w-0 flex-1;
   }
+  .shell-navigation[data-sidebar-collapsible] > .shell-sidebar,
+  .shell-navigation[data-sidebar-collapsible] > .shell-sidebar-default {
+    flex: none;
+    max-width: calc(100% - var(--space-panel-gap));
+  }
   .shell-actions {
-    @apply flex items-center justify-end gap-2;
+    @apply flex items-center justify-end;
+    gap: var(--space-2);
+  }
+  .shell-header .buzz-button[data-icon-variant] {
+    width: 28px;
+    height: 28px;
+  }
+  .shell-header .buzz-button[data-shell-sidebar-toggle] {
+    background: var(--surface-panel);
+    box-shadow: none;
+  }
+  .shell-header .buzz-button[data-icon-variant] svg,
+  .shell-header .buzz-button[data-icon-variant="chrome"] img {
+    width: 16px;
+    height: 16px;
+  }
+  .shell-header
+    .buzz-button[data-icon-variant="chrome"]
+    img[src="/bestie.png"] {
+    width: 18px;
+    height: 18px;
+  }
+  .shell-header
+    .buzz-button[data-shell-sidebar-toggle]:hover:not([data-disabled]) {
+    background: var(--affordance-subtle-hover);
   }
   @media (max-width: 700px) {
     .shell-header {
-      @apply gap-2 pl-2;
+      padding-left: var(--space-2);
+      gap: var(--space-2);
+    }
+    .shell-communities {
+      padding-left: var(--space-4);
     }
   }
   @media (max-width: 650px) {
@@ -246,9 +311,6 @@
     }
     .shell-sidebar-default {
       margin-right: var(--space-1);
-    }
-    .shell-navigation-toggle {
-      display: inline-flex;
     }
     .shell-navigation {
       display: none;

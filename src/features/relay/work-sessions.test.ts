@@ -6,6 +6,7 @@ import type { ChannelQueries } from "./contracts";
 import {
   keypair,
   message,
+  metadata,
   roster,
   flush,
   scriptedTransport,
@@ -519,6 +520,214 @@ it("removes a successfully refreshed channel creation from durable recovery", as
   }
 });
 
+it.each<["open" | "private", string[][]]>([
+  ["open", [["public"]]],
+  ["private", [["private"]]],
+])(
+  "admits a created %s channel through the store's exact read without rediscovering the roster",
+  async (visibility, tags) => {
+    const viewer = keypair(),
+      relay = keypair();
+    const wire = scriptedTransport(viewer.pubkey, relay.pubkey);
+    let records: readonly OutgoingEvent[] = [];
+    const owner = createRelaySession(
+      {
+        ...wire.transport,
+        writer: {
+          kinds: [9, 9000, 9007],
+          sign: async (template) => signed(viewer, template),
+          publish: async () => {},
+        },
+      },
+      {
+        outboxStorage: {
+          load: () => structuredClone(records),
+          save: (next) => {
+            records = structuredClone(next);
+          },
+        },
+      },
+    );
+    try {
+      // A loaded sidebar whose complete viewer roster is still empty.
+      owner.session.channels.ensureList();
+      await vi.waitFor(() => expect(wire.pending).toHaveLength(1));
+      wire.next().respond([]);
+      await vi.waitFor(() =>
+        expect(owner.session.channels.list()).toMatchObject({
+          status: "ready",
+          channels: [],
+        }),
+      );
+      const notified = vi.fn();
+      const unsubscribe = owner.session.channels.subscribeList(notified);
+      const creating = owner.session.channelCreation.create({
+        name: "Release notes",
+        visibility,
+      });
+      await vi.waitFor(() =>
+        expect(records.some(({ event }) => event.kind === 9007)).toBe(true),
+      );
+      const id =
+        records
+          .find(({ event }) => event.kind === 9007)
+          ?.event.tags.find(([name]) => name === "h")?.[1] ?? "";
+      // After publish: the outbox's receipt readback and the one exact lookup.
+      await vi.waitFor(() => expect(wire.pending).toHaveLength(2));
+      const exact = wire.pending.find((request) =>
+        request.filters.some((filter) => filter["#d"]),
+      );
+      expect(exact?.filters).toEqual([
+        { kinds: [39000], authors: [relay.pubkey], "#d": [id], limit: 2 },
+        {
+          kinds: [39002],
+          authors: [relay.pubkey],
+          "#d": [id],
+          "#p": [viewer.pubkey],
+          limit: 2,
+        },
+      ]);
+      for (const request of wire.pending.splice(0))
+        request.respond(
+          request === exact
+            ? [
+                metadata(relay, id, "Release notes", undefined, tags),
+                roster(relay, id, [viewer.pubkey]),
+              ]
+            : [],
+        );
+      await expect(creating).resolves.toBe(id);
+      expect(owner.session.channels.list()).toMatchObject({
+        status: "ready",
+        channels: [{ id, name: "Release notes", members: [viewer.pubkey] }],
+      });
+      expect(notified).toHaveBeenCalledOnce();
+      await flush();
+      // No viewer-wide roster page followed the exact read.
+      expect(wire.pending).toHaveLength(0);
+      unsubscribe();
+    } finally {
+      owner.dispose();
+    }
+  },
+);
+
+it("creates a channel during initial discovery without committing a list of only that channel", async () => {
+  const viewer = keypair(),
+    relay = keypair();
+  const other = "22222222-2222-4222-8222-222222222222";
+  const wire = scriptedTransport(viewer.pubkey, relay.pubkey);
+  let records: readonly OutgoingEvent[] = [];
+  const owner = createRelaySession(
+    {
+      ...wire.transport,
+      writer: {
+        kinds: [9, 9000, 9007],
+        sign: async (template) => signed(viewer, template),
+        publish: async () => {},
+      },
+    },
+    {
+      outboxStorage: {
+        load: () => structuredClone(records),
+        save: (next) => {
+          records = structuredClone(next);
+        },
+      },
+    },
+  );
+  try {
+    owner.session.channels.ensureList();
+    await vi.waitFor(() => expect(wire.pending).toHaveLength(1));
+    expect(owner.session.channels.list().status).toBe("loading");
+    const snapshots: ReturnType<ChannelQueries["list"]>[] = [];
+    const unsubscribe = owner.session.channels.subscribeList(() =>
+      snapshots.push(owner.session.channels.list()),
+    );
+    const creating = owner.session.channelCreation.create({
+      name: "Release notes",
+      visibility: "open",
+    });
+    await vi.waitFor(() =>
+      expect(records.some(({ event }) => event.kind === 9007)).toBe(true),
+    );
+    const id =
+      records
+        .find(({ event }) => event.kind === 9007)
+        ?.event.tags.find(([name]) => name === "h")?.[1] ?? "";
+    // Serve every pending read: the viewer roster page lists `joined`, and
+    // metadata answers whatever ids discovery asks for.
+    const serve = (joined: readonly string[]) => {
+      for (const request of wire.pending.splice(0)) {
+        const [filter] = request.filters;
+        request.respond(
+          filter?.kinds?.includes(39002) && filter["#p"]
+            ? joined.map((channel) => roster(relay, channel, [viewer.pubkey]))
+            : filter?.kinds?.includes(39000)
+              ? (filter["#d"] ?? []).map((channel) =>
+                  metadata(
+                    relay,
+                    channel,
+                    channel === id ? "Release notes" : "Existing",
+                    undefined,
+                    [["public"]],
+                  ),
+                )
+              : [],
+        );
+      }
+    };
+    await flush();
+    // Only the in-flight discovery page and the outbox receipt readback; the
+    // exact read would commit a ready list holding just the new channel.
+    expect(wire.pending).toHaveLength(2);
+    expect(
+      wire.pending.some((request) =>
+        request.filters.some((filter) => filter["#d"]),
+      ),
+    ).toBe(false);
+    // The in-flight page was served before the relay accepted the create.
+    serve([other]);
+    await vi.waitFor(() =>
+      expect(
+        snapshots.find((snapshot) => snapshot.status === "ready")?.channels,
+      ).toEqual([expect.objectContaining({ id: other })]),
+    );
+    // The first pass finishes with its metadata read before the forced second
+    // pass starts; that pass carries the new channel's roster.
+    await vi.waitFor(() => expect(wire.pending).toHaveLength(1));
+    serve([other]);
+    await vi.waitFor(() =>
+      expect(
+        wire.pending.some((request) =>
+          request.filters.some((filter) => filter["#p"]),
+        ),
+      ).toBe(true),
+    );
+    serve([other, id]);
+    await expect(creating).resolves.toBe(id);
+    expect(owner.session.channels.list()).toMatchObject({
+      status: "ready",
+      channels: expect.arrayContaining([
+        expect.objectContaining({ id: other }),
+        expect.objectContaining({ id, members: [viewer.pubkey] }),
+      ]),
+    });
+    // Canonical check, cited from the store's `resolve` docstring: no ready
+    // snapshot ever held only the new channel.
+    expect(
+      snapshots
+        .filter((snapshot) => snapshot.status === "ready")
+        .every((snapshot) =>
+          snapshot.channels.some((channel) => channel.id === other),
+        ),
+    ).toBe(true);
+    unsubscribe();
+  } finally {
+    owner.dispose();
+  }
+});
+
 it.each([true, false])(
   "confirms an exact own creation without admitting a channel missing its roster (receipt: %s)",
   async (found) => {
@@ -599,13 +808,15 @@ type RelaySessionRead = ReturnType<
 >["session"]["read"];
 function setup(
   channelCreation = true,
-  channelList: ReturnType<ChannelQueries["list"]> = {
+  initialList: ReturnType<ChannelQueries["list"]> = {
     status: "ready",
     channels: [],
   },
 ) {
   let items: readonly OutgoingEvent[] = [{ event, delivery: "accepted" }];
+  let channelList = initialList;
   const listeners = new Set<() => void>();
+  const listListeners = new Set<() => void>();
   const receipts = {
     snapshot: () => items,
     subscribe: (fn: () => void) => {
@@ -630,10 +841,22 @@ function setup(
     }),
     dismiss: vi.fn(async () => {}),
   };
+  // The store's exact lookup applies through discovery and notifies the list;
+  // tests script that by changing the list from inside `resolve`. The real
+  // store path is exercised by "admits a created ... through the store's exact
+  // read without rediscovering the roster".
+  const resolve = vi.fn<NonNullable<ChannelQueries["resolve"]>>(async () => {});
+  const refreshList = vi.fn();
   const channels = {
     list: () => channelList,
-    subscribeList: () => () => {},
-    refreshList: vi.fn(),
+    subscribeList: (fn: () => void) => {
+      listListeners.add(fn);
+      return () => {
+        listListeners.delete(fn);
+      };
+    },
+    resolve,
+    refreshList,
   } as unknown as ChannelQueries;
   const reader = { read: vi.fn(async () => [event]) };
   const controller = new AbortController();
@@ -647,13 +870,26 @@ function setup(
     ),
     outbox,
     channels,
+    resolve,
+    refreshList,
     reader,
     listeners,
+    listListeners,
     controller,
     setItems: (next: readonly OutgoingEvent[]) => {
       items = next;
     },
+    setList: (next: ReturnType<ChannelQueries["list"]>) => {
+      channelList = next;
+      for (const fn of listListeners) fn();
+    },
   };
+}
+/** The signal `refresh` handed its exact lookup, released once the gate decides. */
+function lookupSignal(test: ReturnType<typeof setup>) {
+  const signal = test.resolve.mock.lastCall?.[1]?.signal;
+  expect(signal).toBeInstanceOf(AbortSignal);
+  return signal as AbortSignal;
 }
 it("confirms completed journal receipts after they leave the pending outbox", async () => {
   const test = setup();
@@ -671,7 +907,180 @@ it("accepts already-applied creator membership without a refresh notification", 
   await expect(
     test.service.refresh(id, { member }, false),
   ).resolves.toBeUndefined();
-  expect(test.channels.refreshList).toHaveBeenCalledOnce();
+  // A list that already carries the signed membership needs no further read.
+  expect(test.resolve).not.toHaveBeenCalled();
+  expect(test.refreshList).not.toHaveBeenCalled();
+  expect(test.listListeners.size).toBe(0);
+});
+it("admits a new channel from its exact lookup without a full discovery", async () => {
+  const id = "11111111-1111-4111-8111-111111111111";
+  const member = "a".repeat(64);
+  const test = setup();
+  test.resolve.mockImplementation(async (ids) => {
+    expect(ids).toEqual([id]);
+    test.setList({
+      status: "ready",
+      channels: [{ id, name: "Release notes", members: [member] }],
+    });
+  });
+  await expect(
+    test.service.refresh(id, { member }, false),
+  ).resolves.toBeUndefined();
+  expect(test.resolve).toHaveBeenCalledExactlyOnceWith([id], {
+    signal: expect.any(AbortSignal),
+  });
+  expect(lookupSignal(test).aborted).toBe(true);
+  expect(test.refreshList).not.toHaveBeenCalled();
+  expect(test.listListeners.size).toBe(0);
+});
+it("admits a channel the live roster lists while its exact lookup is still in flight", async () => {
+  const id = "11111111-1111-4111-8111-111111111111";
+  const member = "a".repeat(64);
+  const test = setup();
+  test.resolve.mockImplementation(() => new Promise<void>(() => {}));
+  const refreshing = test.service.refresh(id, { member }, false);
+  await vi.waitFor(() => expect(test.resolve).toHaveBeenCalledOnce());
+  const lookup = lookupSignal(test);
+  expect(lookup.aborted).toBe(false);
+  test.setList({
+    status: "ready",
+    channels: [{ id, name: "Release notes", members: [member] }],
+  });
+  await expect(refreshing).resolves.toBeUndefined();
+  // The live roster decided, so the in-flight exact read is released rather
+  // than left holding a reader slot until the connection closes.
+  expect(lookup.aborted).toBe(true);
+  expect(test.controller.signal.aborted).toBe(false);
+  expect(test.refreshList).not.toHaveBeenCalled();
+});
+it.each(["idle", "loading", "error"] as const)(
+  "waits for the full discovery instead of an exact lookup while the list is %s",
+  async (status) => {
+    const id = "11111111-1111-4111-8111-111111111111";
+    const member = "a".repeat(64);
+    const test = setup(true, {
+      status,
+      channels: [],
+      ...(status === "error" ? { error: "offline" } : {}),
+    });
+    let settled = false;
+    const refreshing = test.service
+      .refresh(id, { member }, false)
+      .finally(() => {
+        settled = true;
+      });
+    await vi.waitFor(() => expect(test.refreshList).toHaveBeenCalledOnce());
+    expect(test.resolve).not.toHaveBeenCalled();
+    await flush();
+    expect(settled).toBe(false);
+    test.setList({
+      status: "ready",
+      channels: [{ id, name: "Release notes", members: [member] }],
+    });
+    await expect(refreshing).resolves.toBeUndefined();
+    expect(test.resolve).not.toHaveBeenCalled();
+    expect(test.listListeners.size).toBe(0);
+  },
+);
+it.each([
+  ["without the viewer", async () => {}],
+  [
+    "as stale",
+    async () => {
+      throw new DOMException("Stale channel resolution", "AbortError");
+    },
+  ],
+])(
+  "falls back to the full discovery when the exact lookup returns %s",
+  async (_outcome, lookup) => {
+    const id = "11111111-1111-4111-8111-111111111111";
+    const member = "a".repeat(64);
+    const test = setup();
+    test.resolve.mockImplementation(lookup);
+    let settled = false;
+    const refreshing = test.service
+      .refresh(id, { member }, false)
+      .finally(() => {
+        settled = true;
+      });
+    await vi.waitFor(() => expect(test.refreshList).toHaveBeenCalledOnce());
+    expect(test.resolve).toHaveBeenCalledExactlyOnceWith([id], {
+      signal: expect.any(AbortSignal),
+    });
+    expect(test.resolve.mock.invocationCallOrder[0]).toBeLessThan(
+      test.refreshList.mock.invocationCallOrder[0] ?? 0,
+    );
+    await flush();
+    expect(settled).toBe(false);
+    test.setList({
+      status: "ready",
+      channels: [{ id, name: "Release notes", members: [member] }],
+    });
+    await expect(refreshing).resolves.toBeUndefined();
+    expect(test.refreshList).toHaveBeenCalledOnce();
+    expect(test.listListeners.size).toBe(0);
+  },
+);
+it.each([true, false])(
+  "gives up 15 seconds after refresh starts when the exact lookup never answers (session: %s)",
+  async (sessionOnly) => {
+    vi.useFakeTimers();
+    try {
+      const id = "11111111-1111-4111-8111-111111111111";
+      const member = "a".repeat(64);
+      const test = setup();
+      test.resolve.mockImplementation(() => new Promise<void>(() => {}));
+      let settled = false;
+      const refreshing = test.service
+        .refresh(id, { member }, sessionOnly)
+        .finally(() => {
+          settled = true;
+        });
+      const failure = expect(refreshing).rejects.toThrow(
+        sessionOnly
+          ? /membership is still loading/
+          : /Agent addition is unconfirmed/,
+      );
+      await vi.advanceTimersByTimeAsync(14_999);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      await failure;
+      // The deadline decided; a hung exact read must not start discovery late,
+      // and its reader slot is released without waiting for the connection.
+      expect(test.refreshList).not.toHaveBeenCalled();
+      expect(lookupSignal(test).aborted).toBe(true);
+      expect(test.controller.signal.aborted).toBe(false);
+      expect(test.listListeners.size).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  },
+);
+it("counts the fallback discovery against the same 15 second deadline", async () => {
+  vi.useFakeTimers();
+  try {
+    const id = "11111111-1111-4111-8111-111111111111";
+    const member = "a".repeat(64);
+    const test = setup();
+    let settled = false;
+    const refreshing = test.service
+      .refresh(id, { member }, false)
+      .finally(() => {
+        settled = true;
+      });
+    const failure = expect(refreshing).rejects.toThrow(
+      /Agent addition is unconfirmed/,
+    );
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(test.refreshList).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(9_999);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    await failure;
+    expect(test.listListeners.size).toBe(0);
+  } finally {
+    vi.useRealTimers();
+  }
 });
 it("retries the same unknown event and confirms restored receipts through verified reads", async () => {
   const test = setup();

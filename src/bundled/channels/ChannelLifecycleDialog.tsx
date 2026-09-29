@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "../../shared/design-system/ui/Button";
-import { Input } from "../../shared/design-system/ui/Input";
 import {
   ChannelLifecycleUnconfirmed,
   type ChannelLifecycleCapability,
@@ -12,7 +11,7 @@ const copy = {
   archive: {
     title: "Archive channel",
     detail:
-      "Archive this channel for everyone and remove it from the sidebar. Messages are retained. A channel administrator can unarchive it from another supported client.",
+      "Archive this channel for everyone and remove it from the sidebar. Messages are kept. A channel administrator can unarchive it later using another supported client; this app cannot restore it yet.",
   },
   delete: {
     title: "Delete channel",
@@ -50,7 +49,6 @@ export function ChannelLifecycleDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [refreshRequired, setRefreshRequired] = useState(false);
-  const [confirmation, setConfirmation] = useState("");
   const operation = useRef<AbortController | undefined>(undefined);
   useEffect(() => {
     dialog.current?.showModal();
@@ -59,12 +57,7 @@ export function ChannelLifecycleDialog({
     };
   }, []);
   const submit = async () => {
-    if (
-      operation.current ||
-      refreshRequired ||
-      (action === "delete" && confirmation !== channelName)
-    )
-      return;
+    if (operation.current || refreshRequired) return;
     const controller = new AbortController();
     operation.current = controller;
     setBusy(true);
@@ -102,19 +95,6 @@ export function ChannelLifecycleDialog({
         {copy[action].title}: {channelName}
       </h2>
       <p id="channel-lifecycle-description">{copy[action].detail}</p>
-      {action === "delete" && (
-        <label htmlFor="channel-lifecycle-confirmation">
-          Type {channelName} to confirm
-          <Input
-            id="channel-lifecycle-confirmation"
-            aria-label="Channel name confirmation"
-            value={confirmation}
-            disabled={busy}
-            onChange={(event) => setConfirmation(event.target.value)}
-            autoComplete="off"
-          />
-        </label>
-      )}
       {error && <p role="alert">{error}</p>}
       {busy && (
         <p role="status">
@@ -127,12 +107,8 @@ export function ChannelLifecycleDialog({
         </Button>
         <Button
           type="button"
-          variant="destructive"
-          disabled={
-            busy ||
-            refreshRequired ||
-            (action === "delete" && confirmation !== channelName)
-          }
+          variant={action === "delete" ? "destructive" : "prominent"}
+          disabled={busy || refreshRequired}
           onClick={() => void submit()}
         >
           {copy[action].title}

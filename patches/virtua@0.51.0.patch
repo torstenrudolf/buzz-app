@@ -1,14 +1,64 @@
 diff --git a/lib/index.js b/lib/index.js
-index a183cc7..a892a1c 100644
+index a183cc7b..44e2d963 100644
 --- a/lib/index.js
 +++ b/lib/index.js
-@@ -7,1 +7,5 @@
+@@ -6,6 +6,10 @@ import { jsx as c } from "react/jsx-runtime";
+-
++
  import { flushSync as f } from "react-dom";
+-
 +
 +// WebKit can restore a stale native scroll offset after an instant correction.
 +// Interrupt only the corrected axis; observer-inferred idle is not native idle.
 +const isMacWebKit = () => typeof navigator !== "undefined" && !b() && navigator.platform === "MacIntel" && navigator.vendor === "Apple Computer, Inc.";
-@@ -252 +256,19 @@ var {min: a, max: u, abs: d, floor: h} = Math, g = (e, t, n) => a(n, u(t, e)), v
++
+ var {min: a, max: u, abs: d, floor: h} = Math, g = (e, t, n) => a(n, u(t, e)), v = e => [ ...e ].sort((e, t) => e - t), p = setTimeout, S = clearTimeout, m = "function" == typeof queueMicrotask ? queueMicrotask : e => {
+     Promise.resolve().then(e);
+ }, $ = () => {
+@@ -173,15 +177,37 @@ var {min: a, max: u, abs: d, floor: h} = Math, g = (e, t, n) => a(n, u(t, e)), v
+         q: () => [ l.slice(), o ]
+     };
+ }, C = e => {
+-    let t;
++    let t, view, frame;
++    const observed = new Set, pending = new Map;
+     return {
+         A(n) {
+-            (t || (t = new (z(_(n)).ResizeObserver)(e))).observe(n);
++            observed.add(n);
++            if (!t) {
++                view = z(_(n));
++                // Rendering from native resize delivery can mount same-depth
++                // items and trigger WebKit's skipped-notification loop.
++                t = new view.ResizeObserver(entries => {
++                    for (const entry of entries) if (observed.has(entry.target)) pending.set(entry.target, entry);
++                    if (pending.size && frame === undefined) frame = view.requestAnimationFrame(() => {
++                        frame = undefined;
++                        const batch = [...pending.values()];
++                        pending.clear();
++                        if (batch.length) e(batch);
++                    });
++                });
++            }
++            t.observe(n);
+         },
+         B(e) {
++            observed.delete(e);
++            pending.delete(e);
+             t.unobserve(e);
+         },
+         X() {
++            if (frame !== undefined) view.cancelAnimationFrame(frame);
++            frame = undefined;
++            pending.clear();
++            observed.clear();
+             t && t.disconnect();
+         }
+     };
+@@ -249,10 +275,28 @@ var {min: a, max: u, abs: d, floor: h} = Math, g = (e, t, n) => a(n, u(t, e)), v
+         o && o();
+     } ];
+ }, E = (e, t) => {
 -    let n, o, r = $(), i = !1;
 +    let n, o, r = $(), i = !1, restoreOverflow;
 +    // Scroll APIs can truncate fractional offsets. Reach the whole edge without
@@ -29,20 +79,46 @@ index a183cc7..a892a1c 100644
 +        }, timer = p(restore);
 +        restoreOverflow = restore;
 +    };
-@@ -255 +277 @@ var {min: a, max: u, abs: d, floor: h} = Math, g = (e, t, n) => a(n, u(t, e)), v
+     const s = t ? "scrollLeft" : "scrollTop", l = t ? "left" : "top", c = t ? "overflowX" : "overflowY", [f, a] = O(e, () => r[0], (e, t) => {
+         n.scrollTo({
 -            [l]: T(e, i),
 +            [l]: T(edgeOffset(e), i),
-@@ -269 +291,2 @@ var {min: a, max: u, abs: d, floor: h} = Math, g = (e, t, n) => a(n, u(t, e)), v
+             behavior: t ? "smooth" : "instant"
+         });
+     }), u = t ? "width" : "height", d = /* @__PURE__ */ new WeakMap, h = C(t => {
+@@ -266,7 +310,8 @@ var {min: a, max: u, abs: d, floor: h} = Math, g = (e, t, n) => a(n, u(t, e)), v
+     return {
+         D(f, u = f.parentElement) {
+             h.A(n = u), t && (i = "rtl" === getComputedStyle(u).direction), o = M(e, u, t, () => T(u[s], i), (t, n, o) => {
 -                if (o) {
 +                if (isMacWebKit()) interruptMomentum();
 +                else if (o) {
-@@ -277 +300 @@ var {min: a, max: u, abs: d, floor: h} = Math, g = (e, t, n) => a(n, u(t, e)), v
+                     const e = u.style, t = e[c];
+                     e[c] = "hidden", p(() => {
+                         e[c] = t;
+@@ -274,7 +319,7 @@ var {min: a, max: u, abs: d, floor: h} = Math, g = (e, t, n) => a(n, u(t, e)), v
+                 }
+                 const r = e.T() + t;
+                 r <= 0 || r >= e.O() + e.t() - e.o() ? u.scrollTo({
 -                    [l]: T(r, i),
 +                    [l]: T(edgeOffset(r), i),
-@@ -286 +309 @@ var {min: a, max: u, abs: d, floor: h} = Math, g = (e, t, n) => a(n, u(t, e)), v
+                     behavior: "instant"
+                 }) : u.scrollBy({
+                     [l]: T(t, i),
+@@ -283,7 +328,7 @@ var {min: a, max: u, abs: d, floor: h} = Math, g = (e, t, n) => a(n, u(t, e)), v
+             }), r[1](!0);
+         },
+         _() {
 -            h.X(), o && o.X(), r[1](!1), r = $();
 +            restoreOverflow && restoreOverflow(), h.X(), o && o.X(), r[1](!1), r = $();
-@@ -799,2 +822 @@ var {min: a, max: u, abs: d, floor: h} = Math, g = (e, t, n) => a(n, u(t, e)), v
+         },
+         P: (e, t) => (d.set(e, t), h.A(e), () => {
+             d.delete(e), h.B(e);
+@@ -796,5 +841,4 @@ var {min: a, max: u, abs: d, floor: h} = Math, g = (e, t, n) => a(n, u(t, e)), v
+     });
+ });
+-
++
 -export { G as VList, j as Virtualizer, U as WindowVirtualizer, N as experimental_VGrid };
 -//# sourceMappingURL=index.js.map
 \ No newline at end of file

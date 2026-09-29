@@ -12,7 +12,7 @@ import { ChoiceRow } from "../../shared/design-system/ui/ChoiceRow";
 import { useAvatarPreview } from "../../features/profiles/use-avatar-preview";
 import { DotsThreeIcon } from "../../shared/design-system/icons/index";
 import { IconButton } from "../../shared/design-system/ui/IconButton";
-import { Avatar } from "../../shared/design-system/ui/Avatar";
+import { AgentAvatar } from "../../features/agents/AgentAvatar";
 import { Button } from "../../shared/design-system/ui/Button";
 import {
   PopoverRoot,
@@ -186,12 +186,16 @@ export function AgentCard({
       <div
         className={
           children
-            ? "flex min-w-0 items-center gap-3 pr-6"
+            ? `flex min-w-0 items-center gap-3 ${onEdit ? "pr-6" : ""}`
             : "flex flex-col items-center gap-6 text-center"
         }
       >
         <div className={children ? "shrink-0" : "size-20 shrink-0"}>
-          <Avatar
+          <AgentAvatar
+            session={session}
+            agentPubkey={
+              identities.length === 1 ? identities[0]?.pubkey : undefined
+            }
             alt={name}
             fallback={name}
             src={picture ?? null}
@@ -204,7 +208,9 @@ export function AgentCard({
           {name}
         </h3>
       </div>
-      {children}
+      {children && (
+        <div className="flex min-w-0 flex-col gap-3">{children}</div>
+      )}
       {identities.length && !children ? (
         <div className="-mt-3 flex justify-center">
           <PopoverRoot>
@@ -213,24 +219,20 @@ export function AgentCard({
                 <Button
                   variant="link"
                   size="xs"
-                  aria-label={`${name}: ${identities.length} ${identities.length === 1 ? "identity" : "identities"}`}
+                  aria-label={`${name}: public key`}
                 >
                   <span className="text-caption text-subtle underline underline-offset-4">
-                    {identities.length}{" "}
-                    {identities.length === 1 ? "identity" : "identities"}
+                    Public key
                   </span>
                 </Button>
               }
             />
             <PopoverPopup align="center">
-              <PopoverTitle>{name} identities</PopoverTitle>
+              <PopoverTitle>{name} public key</PopoverTitle>
               <ul className="m-0 mt-3 list-none space-y-3 p-0">
                 {identities.map((identity) => (
                   <li key={identity.pubkey}>
-                    <span className="text-label-sm">
-                      {identityLabel(identity)}
-                    </span>
-                    <p className="m-0 mt-1 select-all break-all text-mono-sm text-subtle">
+                    <p className="m-0 select-all break-all text-mono-sm text-subtle">
                       {npubEncode(identity.pubkey)}
                     </p>
                   </li>

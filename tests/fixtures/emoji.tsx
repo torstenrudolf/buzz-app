@@ -82,6 +82,7 @@ const sessions = ["a", "b"].map((community) => {
                     ["emoji", "nosource", `${origin}/media/no-source.png`],
                     ["emoji", "broken", `${origin}/media/broken.png`],
                     ["emoji", "grinning", `${origin}/media/grinning.png`],
+                    ["emoji", "enjoy", `${origin}/media/enjoy.png`],
                     ["emoji", "party-parrot", `${origin}/media/parrot.png`],
                     ["emoji", "party-parrot-wave", `${origin}/media/wave.png`],
                     [

@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
+import { stubAvatarBrowserApis } from "../../features/agents/avatar-testing";
+stubAvatarBrowserApis();
 import { npubEncode } from "nostr-tools/nip19";
 import {
   act,
@@ -41,12 +43,15 @@ it("badges a single agent only while live presence is known", () => {
     />,
   );
   const artwork = screen.getByRole("img", { name: "Agent" });
-  expect(artwork).toHaveAttribute("data-avatar-shape", "squircle");
+  expect(artwork.querySelector("[data-avatar-shape]")).toHaveAttribute(
+    "data-avatar-shape",
+    "squircle",
+  );
   const image = artwork.querySelector("img");
   expect(image).toBeTruthy();
   fireEvent.load(image as HTMLImageElement);
   expect(image).toHaveAttribute("data-loaded", "true");
-  expect(artwork.closest(".buzz-avatar-status")).not.toHaveAttribute(
+  expect(artwork.querySelector(".buzz-avatar-status")).not.toHaveAttribute(
     "data-status",
   );
   for (const next of ["online", "away", "offline", "unknown"] as const) {
@@ -55,15 +60,22 @@ it("badges a single agent only while live presence is known", () => {
       changed();
     });
     const updated = screen.getByRole("img", {
-      name: next === "unknown" ? "Agent" : `Agent, ${next}`,
+      name:
+        next === "unknown"
+          ? "Agent"
+          : `Agent, ${next === "online" ? "available" : next}`,
     });
-    const badge = updated.closest(".buzz-avatar-status");
+    const badge = updated.querySelector(".buzz-avatar-status");
     expect(updated).toBe(artwork);
     expect(updated.querySelector("img")).toBe(image);
     expect(image).toHaveAttribute("data-loaded", "true");
     if (next === "unknown") {
       expect(badge).not.toHaveAttribute("data-status");
       expect(badge?.querySelector(".buzz-avatar-status-dot")).toBeNull();
+    } else if (next === "online") {
+      expect(updated.querySelector(".badge-pill-ink")).toHaveStyle({
+        visibility: "visible",
+      });
     } else {
       expect(badge).toHaveAttribute("data-status", next);
     }
@@ -135,12 +147,12 @@ it("opens identities in a popover and returns focus on Escape", async () => {
   const user = userEvent.setup();
   const pubkey = "ab".repeat(32);
   render(<AgentCard name="Agent" identities={[{ pubkey, name: "Agent" }]} />);
-  const trigger = screen.getByRole("button", { name: "Agent: 1 identity" });
+  const trigger = screen.getByRole("button", { name: "Agent: public key" });
   expect(screen.queryByText(npubEncode(pubkey))).toBeNull();
   const card = screen.getByRole("article");
   await user.click(trigger);
   const popup = await screen.findByRole("dialog", {
-    name: "Agent identities",
+    name: "Agent public key",
   });
   expect(card).not.toContainElement(popup);
   expect(screen.getByText(npubEncode(pubkey))).toBeVisible();

@@ -5,7 +5,134 @@ use std::{process::Stdio, time::Duration};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 
 const MAX_RESPONSE_BYTES: u64 = 8 * 1024 * 1024;
+const MAX_TEST_BYTES: u64 = 1024 * 1024;
 const METHOD: &str = "_goose/unstable/providers/supported-models/list";
+const TEST_FAILURE: &str = "Goose could not complete a request with this provider and model. Check its credentials, model and network, then test again.";
+
+struct CheckChild(tokio::process::Child);
+impl Drop for CheckChild {
+    fn drop(&mut self) {
+        #[cfg(unix)]
+        if let Some(pid) = self.0.id() {
+            unsafe { libc::kill(-(pid as i32), libc::SIGKILL) };
+        }
+        let _ = self.0.start_kill();
+    }
+}
+
+/// Run one Goose turn through its normal session path without saving a session
+/// or loading extensions. Databricks rejects `info --check`'s empty system prompt.
+/// The selected draft and write-only overrides are resolved by the controller.
+pub(super) async fn test(context: GooseModelContext) -> Result<(), String> {
+    if context.model_id.trim().is_empty()
+        || context.model_id.len() > 512
+        || context.model_id.chars().any(char::is_control)
+    {
+        return Err("Choose a valid Goose model to test".into());
+    }
+    if !context.workspace.is_absolute() || !context.workspace.is_dir() {
+        return Err("Choose an existing absolute workspace before testing Goose".into());
+    }
+    let mut command = tokio::process::Command::new(context.command);
+    command
+        .args([
+            "run",
+            "--text",
+            "Reply OK.",
+            "--no-session",
+            "--no-profile",
+            "--max-turns",
+            "1",
+            "--quiet",
+            "--output-format",
+            "json",
+        ])
+        .current_dir(context.workspace)
+        .env_clear()
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .kill_on_drop(true);
+    for name in [
+        "HOME",
+        "TMPDIR",
+        "USER",
+        "LOGNAME",
+        "LANG",
+        "SSL_CERT_FILE",
+        "SSL_CERT_DIR",
+    ] {
+        if let Some(value) = std::env::var_os(name) {
+            command.env(name, value);
+        }
+    }
+    command
+        .envs(context.environment)
+        .env("PATH", "/usr/bin:/bin:/usr/sbin:/sbin");
+    command
+        .env("GOOSE_PROVIDER", context.provider_id)
+        .env("GOOSE_MODEL", context.model_id)
+        .env("GOOSE_MAX_TOKENS", "10")
+        .env("GOOSE_THINKING_EFFORT", "off");
+    #[cfg(unix)]
+    command.process_group(0);
+    let mut child = CheckChild(
+        command
+            .spawn()
+            .map_err(|_| "Could not start Goose to test the model".to_owned())?,
+    );
+    let stdout = child.0.stdout.take().ok_or(TEST_FAILURE)?;
+    tokio::time::timeout(Duration::from_secs(30), async {
+        let mut output = Vec::new();
+        stdout
+            .take(MAX_TEST_BYTES + 1)
+            .read_to_end(&mut output)
+            .await
+            .map_err(|_| TEST_FAILURE)?;
+        if output.len() as u64 > MAX_TEST_BYTES {
+            return Err(TEST_FAILURE.into());
+        }
+        let status = child.0.wait().await.map_err(|_| TEST_FAILURE)?;
+        let response: Value = serde_json::from_slice(&output).map_err(|_| TEST_FAILURE)?;
+        if status.success() && successful_reply(&response) {
+            Ok(())
+        } else {
+            Err(TEST_FAILURE.into())
+        }
+    })
+    .await
+    .map_err(|_| {
+        "Goose connection test timed out. Check the network, then test again.".to_owned()
+    })?
+}
+
+fn successful_reply(response: &Value) -> bool {
+    if response["metadata"]["status"] != "completed" {
+        return false;
+    }
+    let Some(messages) = response["messages"].as_array() else {
+        return false;
+    };
+    let mut replied = false;
+    for content in messages
+        .iter()
+        .filter(|message| message["role"] == "assistant")
+        .filter_map(|message| message["content"].as_array())
+        .flatten()
+    {
+        if content["type"] == "error" {
+            return false;
+        }
+        if content["type"] == "text"
+            && content["text"]
+                .as_str()
+                .is_some_and(|text| !text.trim().is_empty())
+        {
+            replied = true;
+        }
+    }
+    replied
+}
 
 pub(super) async fn fetch(context: GooseModelContext) -> Result<Vec<String>, String> {
     let provider_id = context.provider_id.clone();
@@ -213,7 +340,9 @@ exec "$BUZZ_GOOSE_TEST_EXE" --exact goose_models::tests::one_shot_acp_request_re
         std::fs::set_permissions(&command, std::fs::Permissions::from_mode(0o700)).unwrap();
         let context = GooseModelContext {
             command,
+            workspace: dir.path().into(),
             provider_id: "openai".into(),
+            model_id: "gpt-6-sol".into(),
             environment: [
                 ("OPENAI_API_KEY".into(), "test-key".into()),
                 (SOCKET.into(), socket.to_str().unwrap().into()),

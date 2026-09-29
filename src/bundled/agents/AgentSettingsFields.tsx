@@ -4,6 +4,7 @@ import { Textarea } from "../../shared/design-system/ui/Textarea";
 import { Field } from "../../shared/design-system/ui/Field";
 import { Input } from "../../shared/design-system/ui/Input";
 import { InputGroup } from "../../shared/design-system/ui/InputGroup";
+import { Select } from "../../shared/design-system/ui/Select";
 import { IconButton } from "../../shared/design-system/ui/IconButton";
 import { EyeIcon, EyeSlashIcon } from "../../shared/design-system/icons/index";
 import type {
@@ -255,6 +256,34 @@ export function AgentSettingsFields({
             inheritedWorkspace={inheritedWorkspace}
             draft={draft}
             onChange={change}
+          />
+          <Select
+            label="Conversation context"
+            variant="field"
+            disabled={disabled}
+            value={draft.sessionPolicy ?? ""}
+            groups={[
+              {
+                label: "",
+                options: [
+                  {
+                    value: "",
+                    label: `Use agent defaults (${state.data?.defaultSettings?.sessionPolicy === "thread" ? "Each thread" : "Entire channel"})`,
+                  },
+                  { value: "channel", label: "Entire channel" },
+                  { value: "thread", label: "Each thread" },
+                ],
+              },
+            ]}
+            onValueChange={(sessionPolicy) =>
+              onChange({
+                sessionPolicy:
+                  sessionPolicy === ""
+                    ? null
+                    : (sessionPolicy as "channel" | "thread"),
+              })
+            }
+            description="Entire channel shares one conversation across threads. Each thread keeps a separate conversation; direct messages remain shared."
           />
           {pi && (
             <p className="text-body-sm text-secondary">

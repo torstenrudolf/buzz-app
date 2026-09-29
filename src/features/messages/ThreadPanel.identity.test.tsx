@@ -106,7 +106,6 @@ it("retains mounted rows through a deferred real-session page and profile noise"
   initial.respond([root, reply]);
   expect(await screen.findByText("Alice")).toBeInTheDocument();
   expect(screen.getByText("Bob")).toBeInTheDocument();
-  expect(await screen.findByText("Loading thread…")).toBeInTheDocument();
   await waitFor(() =>
     expect(
       wire.pending.filter(
@@ -118,6 +117,7 @@ it("retains mounted rows through a deferred real-session page and profile noise"
     (request) => request !== initial && !request.signal?.aborted,
   );
   if (!page) throw new Error("Deferred thread page was not requested");
+  expect(screen.queryByText("Loading thread…")).not.toBeInTheDocument();
   bodyRender.mockClear();
 
   // An unrelated signed profile preserves the selected map, but the shared

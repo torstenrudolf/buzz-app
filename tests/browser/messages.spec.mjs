@@ -686,6 +686,17 @@ test("exact reply media keeps its selected attachment and canonical thread", asy
       () => window.messagesFixture.report.exactReplyId,
     );
     const reply = comments.locator(`[data-message-id="${exactReplyId}"]`);
+    const commentDate = await reply.locator("time").evaluate((time) =>
+      new Date(time.dateTime).toLocaleDateString(undefined, {
+        year: "numeric",
+        weekday: "long",
+        month: "long",
+        day: "numeric",
+      }),
+    );
+    await expect(
+      comments.getByText(commentDate, { exact: true }).first(),
+    ).toBeVisible();
     await reply.hover();
     const addReaction = reply.getByTestId("reaction-row").getByRole("button", {
       name: "Add reaction",

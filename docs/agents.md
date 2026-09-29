@@ -367,11 +367,12 @@ channel-wide. No harness change, new subscription, directory or timer is added.
 The development broker loads subscription filters at startup: restart the
 existing dev server once to receive typing; frontend HMR alone is insufficient.
 
-A profile **View activity** action remains available before the first frame or
-after a working chip disappears. It preselects the exact identity and originating
-channel, not a thread. This action is not an agent/ownership badge and may show a
-waiting state for identities with no published owner-visible telemetry. Shared
-agents and new activity-view permissions are out of scope.
+A known agent's profile **View activity** action remains available before the
+first frame or after a working chip disappears; people's profiles offer none. It
+preselects the exact identity and originating channel, not a thread. The
+known-agent check is display-only evidence, not an ownership badge, and the action
+may show a waiting state for identities with no published owner-visible telemetry.
+Shared agents and new activity-view permissions are out of scope.
 
 The **Channel** selector filters raw entries and working-turn counts, or shows all
 channels including unscoped records. For a selected channel, batches are projected

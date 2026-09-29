@@ -8,6 +8,7 @@ export function controlFixture() {
     relayUrl: "wss://relay.example.test",
     name: "Fixture agent",
     systemPrompt: "Help with the project.",
+    sessionPolicy: null,
     workspace: "/fixture/workspace",
     harness: {
       command: "fixture-acp",
@@ -34,6 +35,7 @@ export function controlFixture() {
     restartDiff: [],
   };
   const data: ControlSnapshot = {
+    localInventoryActions: true,
     runtimeAvailable: true,
     avatarEditingAvailable: true,
     agents: [agent],
@@ -56,6 +58,13 @@ export function controlFixture() {
       calls.push({ action: "profile", payload: { id } });
       if (failProfile) throw "The fixture could not publish the profile.";
       agent.profilePending = false;
+      return structuredClone(data);
+    },
+    async configureHere(id, resolution) {
+      calls.push({ action: "configure", payload: { id, resolution } });
+      const target = data.agents.find((a) => a.id === id);
+      if (!target) throw Error("Missing identity");
+      target.configured = true;
       return structuredClone(data);
     },
     async snapshot() {
@@ -121,7 +130,7 @@ export function controlFixture() {
       calls.push({ action: "preview", payload: { source, destination } });
       importDestination = destination;
       return {
-        token: "fixture-preview",
+        token: destination ? "fixture-preview" : "",
         sourcePath: `/fixture/${source}/managed-agents.json`,
         warnings: ["Fixture source only."],
         candidates: [
@@ -138,6 +147,7 @@ export function controlFixture() {
       calls.push({ action: "import", payload: { token, ids } });
       data.agents.push({
         ...structuredClone(agent),
+        configured: true,
         id: "second-fixture",
         pubkey: "cd".repeat(32),
         relayUrl: importDestination,

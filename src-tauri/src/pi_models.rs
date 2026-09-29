@@ -107,8 +107,6 @@ pub(super) async fn test(context: PiContext, provider: &str, model: &str) -> Res
             "--no-context-files",
             "--no-skills",
             "--no-prompt-templates",
-            "--thinking",
-            "off",
             "--system-prompt",
             "Reply with OK.",
             "--provider",

@@ -135,7 +135,7 @@ Tests must control the ordering they assert, not depend on runner speed.
   applied layout, or observed event. Visible initial content does not prove that
   background work finished. Register event observers before triggering actions.
 - Wait for observable conditions with retrying assertions, not fixed sleeps or
-  immediate snapshots of asynchronous effects. Negative assertions need a
+  immediate snapshots of asynchronous effects (lint rejects `waitForTimeout`). Negative assertions need a
   completion barrier proving the work that could violate them has finished.
   Scope selectors to the semantic content being tested, not unrelated UI.
 - When elapsed time is the behavior under test (expiry, debounce, retry), use a

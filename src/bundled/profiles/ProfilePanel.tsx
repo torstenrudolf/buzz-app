@@ -1,3 +1,4 @@
+import { useAgentOwnerEvidence } from "../../features/profiles/useAgentOwnerEvidence";
 import { useAgentControlRefresh } from "../../features/agents/control-react";
 import { UserStatusDisplay } from "../../features/user-status/StatusDisplay";
 import {
@@ -27,27 +28,30 @@ import {
 import {
   type ReactNode,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
   useSyncExternalStore,
 } from "react";
 import { CopyIcon } from "../../shared/design-system/icons/index";
-import { Avatar } from "../../shared/design-system/ui/Avatar";
+import { AgentAvatar } from "../../features/agents/AgentAvatar";
 import { useKnownAgentPubkeys } from "../../features/agents/use-known";
 import { Button } from "../../shared/design-system/ui/Button";
 import { Tabs } from "../../shared/design-system/ui/Tabs";
 import { ProfileActivity } from "./ProfileActivity";
 import type { PanelProps } from "../../features/panels/service";
-import { profileKey, profileTarget } from "../../features/profiles/target";
+import {
+  profileAgentHint,
+  profilePanelKey,
+  profileTarget,
+} from "../../features/profiles/target";
+import { formatPublicKey } from "../../shared/identity/public-key";
 import { selectProfiles } from "../../features/relay/profile-selection";
 import { useRelayConnection } from "../../features/relay/react";
 import type { RelayData } from "../../features/relay/service";
 import type { RelaySession } from "../../features/relay/session";
-import {
-  ProfileAgentIdentity,
-  useAgentOwnerEvidence,
-} from "./ProfileAgentIdentity";
+import { ProfileAgentIdentity } from "./ProfileAgentIdentity";
 import styles from "./Profiles.module.css";
 
 const emptyState: AgentControlState = {
@@ -77,7 +81,7 @@ export function ProfilePanel({
   refreshControl?: boolean;
 }) {
   const connection = useRelayConnection(relay);
-  const pubkey = profileKey(target);
+  const pubkey = profilePanelKey(target);
   if (!pubkey) return <p>Unsupported profile.</p>;
   if (connection.status !== "ready")
     return <p>Connect to a community to view this profile.</p>;
@@ -87,6 +91,7 @@ export function ProfilePanel({
       refreshControl={refreshControl}
       session={connection.session}
       pubkey={pubkey}
+      agentHint={profileAgentHint(target)}
       instanceId={instanceId}
       context={context}
       navigation={navigation}
@@ -108,6 +113,7 @@ export function ProfilePanel({
 }
 function ProfileDetails({
   children,
+  agentHint,
   refreshControl,
   session,
   pubkey,
@@ -119,6 +125,7 @@ function ProfileDetails({
   instanceId,
   close,
 }: {
+  agentHint: boolean;
   instanceId?: string | undefined;
   refreshControl: boolean;
   children?: ReactNode;
@@ -188,6 +195,11 @@ function ProfileDetails({
   const agentPubkeys = useKnownAgentPubkeys(session, profiles);
   const presence = usePresenceStatus(session.presence, pubkey, true);
   const knownAgent = agentPubkeys.has(pubkey);
+  // Navigation carries appearance, not the evidence used by private controls.
+  const displayAgent = knownAgent || agentHint;
+  const thinkingId = useId();
+  const describeThinking =
+    knownAgent && tab === "info" && presence !== "unknown";
   const ownership = useAgentOwnerEvidence(
     session,
     knownAgent ? pubkey : undefined,
@@ -245,7 +257,11 @@ function ProfileDetails({
   }
   const npub = profileTarget(pubkey)?.slice(6) ?? pubkey;
   const identityName = useChannelIdentityNames(session, context?.channelId);
-  const name = identityName(pubkey, profile?.name ?? "Unknown profile");
+  const name = identityName(
+    pubkey,
+    profile?.name ??
+      (displayAgent ? "Unknown agent" : (formatPublicKey(pubkey) ?? pubkey)),
+  );
   const picture = profile?.picture
     ? (session.media(profile.picture) ?? null)
     : null;
@@ -319,6 +335,7 @@ function ProfileDetails({
       ref={region}
       data-buzz-ui=""
       aria-label="Profile details"
+      aria-describedby={describeThinking ? thinkingId : undefined}
       tabIndex={-1}
       className={styles.root}
     >
@@ -335,11 +352,15 @@ function ProfileDetails({
         />
       ) : (
         <>
-          <div
-            className={`${styles.identity} ${picture ? styles.withPortrait : ""}`}
-          >
-            <div className={picture ? styles.portrait : undefined}>
-              <Avatar
+          <div className={styles.identity}>
+            <div className={styles.portrait}>
+              <AgentAvatar
+                session={session}
+                agentPubkey={pubkey}
+                channelId={context?.channelId}
+                thinkingDescriptionId={
+                  describeThinking ? thinkingId : undefined
+                }
                 src={picture}
                 alt={
                   tab === "info" && presence !== "unknown"
@@ -347,8 +368,8 @@ function ProfileDetails({
                     : `${name} avatar`
                 }
                 fallback={name}
-                size={picture ? "fill" : "large"}
-                shape={agentPubkeys.has(pubkey) ? "squircle" : "circle"}
+                size="fill"
+                shape={displayAgent ? "squircle" : "circle"}
                 statusBadge={presence === "unknown" ? undefined : presence}
               />
             </div>
@@ -414,11 +435,13 @@ function ProfileDetails({
                         onDeleted={close}
                       />
                     )}
-                    <ProfileActivity
-                      session={session}
-                      pubkey={pubkey}
-                      context={context}
-                    />
+                    {knownAgent && (
+                      <ProfileActivity
+                        session={session}
+                        pubkey={pubkey}
+                        context={context}
+                      />
+                    )}
                     {control &&
                       (!knownAgent || ownership.settled) &&
                       !runtimePending &&
@@ -434,7 +457,7 @@ function ProfileDetails({
                           scope={scope}
                           communityOrigin={communityOrigin}
                           viewer={viewer}
-                          knownAgent={knownAgent}
+                          knownAgent={displayAgent}
                         />
                       )}
                     <div className={styles.publicKey}>

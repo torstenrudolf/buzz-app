@@ -205,7 +205,7 @@ export function MentionPicker({
                 </Button>
               </>
             )}
-            {agents.status === "loading" && (
+            {agents.status === "loading" && !candidates.length && (
               <p role="status">Loading agents…</p>
             )}
             {(agents.status === "error" || !!agents.error) && (

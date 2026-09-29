@@ -19,6 +19,7 @@ import type { PresenceActivity } from "../presence/activity";
 import { bindNames, type IdentityNames } from "../identity-names/service";
 import { sessionMetadata } from "../sessions/metadata";
 import { createChannelLifecycle } from "./channel-lifecycle";
+import { createChannelDetails } from "./channel-details";
 import { createWorkflows } from "../workflows/capability";
 import { isWorkflowOperation } from "../workflows/protocol";
 import {
@@ -345,6 +346,7 @@ export function createRelaySession(
       accessEpoch++;
       cancelUploads();
       lifecycle.cancel();
+      details.cancel();
       typing.clear();
       // Saved owner inventory does not depend on channel access. Preserve only
       // that narrow read; broad, mixed, ID and channel reads must still retire.
@@ -675,6 +677,14 @@ export function createRelaySession(
     bound.throwIfAborted();
     // NIP-34/NIP-MP metadata is global; channel tags are associations, not ACLs.
     return events;
+  });
+  const details = createChannelDetails({
+    reader: transport && !options.cachedOnly ? requests.reader : undefined,
+    writer: transport?.channelDetails,
+    viewer: transport?.viewer ?? "",
+    relayAuthor: transport?.relayAuthor ?? "",
+    canAccess: (id) => !closed && channels.canParticipate(id),
+    acceptDiscovery: (events) => channels.acceptDiscovery(events),
   });
   const lifecycle = createChannelLifecycle({
     reader: transport && !options.cachedOnly ? requests.reader : undefined,
@@ -1423,6 +1433,7 @@ export function createRelaySession(
     memberAdditions,
     presence,
     viewer: transport?.viewer,
+    relayAuthor: transport?.relayAuthor,
     authorizeAgentLog: transport?.authorizeAgentLog,
     scope: readScope,
     /** Verified new live-route messages, after reconciliation. Never history or local intent. */
@@ -1662,6 +1673,7 @@ export function createRelaySession(
         }
       : undefined,
     channelLifecycle: lifecycle.capability,
+    channelDetails: details.capability,
     agentActivity: activity.queries,
     agentMemories: memories.capability,
     archives: archives.queries,
@@ -2228,6 +2240,7 @@ export function createRelaySession(
         sidebarPreferences.clear();
         channelKit.clear();
         lifecycle.clear();
+        details.clear();
         // New windows must not yield to or receive errors from retired owners.
         catchups.clear();
         catchupQueue.clear();
@@ -2260,6 +2273,7 @@ export function createRelaySession(
       stopActivityPreferences();
       sidebarPreferences.dispose();
       lifecycle.dispose();
+      details.dispose();
       stopInterests();
       stopWarmPreferences();
       traffic?.dispose();

@@ -1,6 +1,6 @@
 //! Device-wide agent defaults, editable in Settings → Agents. Native-only file;
 //! environment values are write-only and never cross IPC.
-use crate::config::{Agent, HarnessEdit};
+use crate::config::{Agent, HarnessEdit, SessionPolicy};
 use crate::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -23,6 +23,8 @@ pub(crate) struct AgentDefaults {
     #[serde(default)]
     pub effort: String,
     #[serde(default)]
+    pub session_policy: SessionPolicy,
+    #[serde(default)]
     pub environment: BTreeMap<String, String>,
 }
 fn buzz_agent() -> String {
@@ -35,6 +37,7 @@ impl Default for AgentDefaults {
             provider: String::new(),
             model: String::new(),
             effort: String::new(),
+            session_policy: SessionPolicy::Channel,
             environment: BTreeMap::new(),
         }
     }
@@ -48,6 +51,7 @@ pub struct AgentDefaultsView {
     pub provider: String,
     pub model: String,
     pub effort: String,
+    pub session_policy: SessionPolicy,
     pub environment_keys: Vec<String>,
 }
 
@@ -58,6 +62,9 @@ pub struct AgentDefaultsEdit {
     pub provider: String,
     pub model: String,
     pub effort: String,
+    /// Missing preserves the saved default; only an explicit choice replaces it.
+    #[serde(default)]
+    pub session_policy: Option<SessionPolicy>,
     /// Absence preserves; null deletes; a value replaces. Never a read API.
     pub environment: BTreeMap<String, Option<String>>,
 }
@@ -69,6 +76,7 @@ impl AgentDefaults {
             provider: self.provider.clone(),
             model: self.model.clone(),
             effort: self.effort.clone(),
+            session_policy: self.session_policy,
             environment_keys: self.environment.keys().cloned().collect(),
         }
     }
@@ -87,6 +95,7 @@ impl AgentDefaults {
             provider: edit.provider,
             model: edit.model,
             effort: edit.effort,
+            session_policy: edit.session_policy.unwrap_or(self.session_policy),
             environment,
         };
         next.validate()?;
@@ -159,6 +168,11 @@ pub(crate) fn effective_settings(
 
 pub(crate) fn effective(agent: &Agent, defaults: &AgentDefaults) -> Agent {
     let mut out = agent.clone();
+    out.session_policy = Some(
+        agent
+            .selected_session_policy()
+            .unwrap_or(defaults.session_policy),
+    );
     if effective_settings(&mut out.harness, &mut out.environment, defaults)
         && !defaults.effort.is_empty()
     {

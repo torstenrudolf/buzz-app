@@ -12,7 +12,10 @@ export function sameCommunityAgents(
   if (!/^[0-9a-f]{64}$/.test(viewer)) return [];
   return agents.filter((agent) => {
     try {
-      return `${relayOrigin(agent.relayUrl)}:${viewer}` === scope;
+      return (
+        agent.configured !== false &&
+        `${relayOrigin(agent.relayUrl)}:${viewer}` === scope
+      );
     } catch {
       return false;
     }

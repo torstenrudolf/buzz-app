@@ -52,6 +52,13 @@ export async function selectPage(page, name, { connected = true } = {}) {
 }
 
 export async function selectSettingsSection(page, name) {
+  await expect(
+    page.locator("[data-shell-sidebar-toggle]"),
+  ).toHaveAccessibleName(
+    page.viewportSize().width <= 650
+      ? /^(Show|Hide) navigation$/
+      : /^(Show|Hide) Channel sidebar$/,
+  );
   const show = page.getByRole("button", {
     name: "Show navigation",
     exact: true,

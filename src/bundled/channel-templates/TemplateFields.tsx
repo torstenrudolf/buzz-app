@@ -1,7 +1,8 @@
+import type { RelaySession } from "../../features/relay/session";
+import { AgentOwnerPreview } from "../../features/profiles/AgentOwnerPreview";
 import { npubEncode } from "nostr-tools/nip19";
 import { publicKeyLabels } from "../../shared/identity/public-key";
-import { Avatar } from "../../shared/design-system/ui/Avatar";
-import { ChoiceRow } from "../../shared/design-system/ui/ChoiceRow";
+import { IdentityRow } from "../../shared/identity/IdentityRow";
 import { useState } from "react";
 import { Checkbox } from "../../shared/design-system/ui/Checkbox";
 import { Field } from "../../shared/design-system/ui/Field";
@@ -16,10 +17,12 @@ import {
 import styles from "../channels/ChannelTemplates.module.css";
 
 export function AgentSelection({
+  session,
   selected,
   agents,
   onChange,
 }: {
+  session?: RelaySession | undefined;
   selected: readonly string[];
   agents: readonly AgentChoice[];
   onChange(keys: string[]): void;
@@ -36,6 +39,9 @@ export function AgentSelection({
     <div className={styles.stack}>
       <Field label="Find individual agents">
         <Input
+          autoCorrect="off"
+          autoCapitalize="none"
+          spellCheck={false}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Name or npub"
@@ -49,35 +55,32 @@ export function AgentSelection({
               .includes(search.toLowerCase()),
           )
           .map((agent) => (
-            <Checkbox
+            <IdentityRow
               key={agent.pubkey}
-              label={
-                <ChoiceRow
-                  leading={
-                    <Avatar
-                      alt=""
-                      fallback={agent.name}
-                      src={agent.avatar ?? null}
-                      size="small"
-                      shape="squircle"
-                    />
-                  }
-                  label={agent.name}
-                  description={
-                    <span title={npubEncode(agent.pubkey)}>
-                      {labels.get(agent.pubkey)}
-                    </span>
+              pubkey={agent.pubkey}
+              name={agent.name}
+              picture={agent.avatar}
+              isAgent
+              previewDetail={
+                session ? (
+                  <AgentOwnerPreview session={session} pubkey={agent.pubkey} />
+                ) : undefined
+              }
+              keyLabel={labels.get(agent.pubkey)}
+              render={(content, previewProps) => (
+                <Checkbox
+                  {...previewProps}
+                  label={content}
+                  checked={selected.includes(agent.pubkey)}
+                  onCheckedChange={(checked) =>
+                    onChange(
+                      checked
+                        ? [...selected, agent.pubkey]
+                        : selected.filter((key) => key !== agent.pubkey),
+                    )
                   }
                 />
-              }
-              checked={selected.includes(agent.pubkey)}
-              onCheckedChange={(checked) =>
-                onChange(
-                  checked
-                    ? [...selected, agent.pubkey]
-                    : selected.filter((key) => key !== agent.pubkey),
-                )
-              }
+              )}
             />
           ))}
         {!choices.length && (
@@ -91,12 +94,14 @@ export function AgentSelection({
 }
 
 export function TemplateFields({
+  session,
   value,
   onChange,
   entries,
   agents,
   acceptedAgents,
 }: {
+  session?: RelaySession | undefined;
   value: Lineup;
   onChange(value: Lineup): void;
   acceptedAgents?: readonly string[] | undefined;
@@ -162,6 +167,7 @@ export function TemplateFields({
         )}
       </fieldset>
       <AgentSelection
+        session={session}
         selected={value.agents}
         agents={agents}
         onChange={(agents) => onChange({ ...value, agents })}

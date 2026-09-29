@@ -83,6 +83,7 @@ export type ChannelLifecycleSettings = Readonly<{
   channelType: "stream" | "forum" | "dm";
   canArchive: boolean;
   canDelete: boolean;
+  deleteUnavailable?: boolean;
   canLeave: boolean;
   canHide: boolean;
   leaveReason?: string;
@@ -147,7 +148,7 @@ export function lifecycleSettings(
       type !== "dm" &&
       archived !== "true" &&
       (role === "owner" || role === "admin"),
-    canDelete: type !== "dm" && role === "owner",
+    canDelete: type !== "dm" && archived !== "true" && role === "owner",
     canLeave: type !== "dm" && !lastOwner,
     canHide: type === "dm",
     ...(lastOwner && type !== "dm"

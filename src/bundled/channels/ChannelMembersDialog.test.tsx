@@ -11,6 +11,7 @@ import type { RelayEvent } from "../../features/relay/events";
 import { PublishRejected } from "../../features/relay/outbox";
 import { createAgentControl } from "../../features/agents/control";
 import { controlFixture } from "../../features/agents/control-testing";
+import { ToastProvider } from "../../shared/design-system/ui/Toast";
 import { ChannelMembersButton } from "./ChannelMembersDialog";
 const stops: (() => void)[] = [];
 afterEach(() => {
@@ -38,6 +39,7 @@ async function setup(
   let applyAddition = true;
   let searchFailure = false;
   let nameRetry: Promise<void> | undefined;
+  let rosterRead: Promise<void> | undefined;
   let release: (() => void) | undefined;
   const publish = vi.fn(async (_event: RelayEvent) => {
     if (failure) throw new PublishRejected(failure);
@@ -63,6 +65,8 @@ async function setup(
       await nameRetry;
       throw new Error("Names unavailable");
     }
+    if (filters.some((filter) => filter.kinds?.includes(39002)))
+      await rosterRead;
     return [
       roster(relay, id, members, clock),
       signed(relay, {
@@ -99,11 +103,13 @@ async function setup(
     expect(owner.session.channels.list().status).toBe("ready"),
   );
   render(
-    <ChannelMembersButton
-      session={owner.session}
-      channelId={id}
-      control={control}
-    />,
+    <ToastProvider>
+      <ChannelMembersButton
+        session={owner.session}
+        channelId={id}
+        control={control}
+      />
+    </ToastProvider>,
   );
   const user = userEvent.setup();
   await user.click(screen.getByRole("button", { name: "Channel members" }));
@@ -132,6 +138,9 @@ async function setup(
     },
     fail: (value: string) => {
       failure = value;
+    },
+    holdRoster: (pending: Promise<void> | undefined) => {
+      rosterRead = pending;
     },
     holdNames: (pending: Promise<void>) => {
       nameRetry = pending;
@@ -284,6 +293,12 @@ it("finishes confirmed local-agent startup after closing and reopening during pu
   t.hold();
   await t.user.click(await t.search());
   await vi.waitFor(() => expect(t.publish).toHaveBeenCalledOnce());
+  const preview = screen.getByRole("dialog", {
+    name: "Fixture agent identity",
+  });
+  await t.user.keyboard("{Escape}");
+  await vi.waitFor(() => expect(preview).not.toBeInTheDocument());
+  expect(screen.getByRole("dialog", { name: "Channel members" })).toBeVisible();
   await t.user.keyboard("{Escape}");
   await vi.waitFor(() =>
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
@@ -310,6 +325,12 @@ it("keeps closed-dialog startup failures recoverable without another membership 
   t.hold();
   await t.user.click(await t.search());
   await vi.waitFor(() => expect(t.publish).toHaveBeenCalledOnce());
+  const preview = screen.getByRole("dialog", {
+    name: "Fixture agent identity",
+  });
+  await t.user.keyboard("{Escape}");
+  await vi.waitFor(() => expect(preview).not.toBeInTheDocument());
+  expect(screen.getByRole("dialog", { name: "Channel members" })).toBeVisible();
   await t.user.keyboard("{Escape}");
   await vi.waitFor(() =>
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
@@ -401,3 +422,42 @@ it.each(["none", "rejected", "lagging"])(
     expect(action).toHaveBeenCalledTimes(2);
   },
 );
+
+it("keeps known members quiet while rechecking membership without enabling unverified additions", async () => {
+  const t = await setup();
+  await vi.waitFor(() =>
+    expect(screen.queryByText("Loading members…")).toBeNull(),
+  );
+  expect(await t.search()).toBeEnabled();
+  await t.user.keyboard("{Escape}");
+  const rosterReads = () =>
+    t.query.mock.calls.filter(([filters]) =>
+      filters.some((filter) => filter.kinds?.includes(39002)),
+    ).length;
+  const before = rosterReads();
+  let release!: () => void;
+  t.holdRoster(
+    new Promise<void>((_resolve, reject) => {
+      release = () => reject(new Error("Roster unavailable"));
+    }),
+  );
+  try {
+    await t.user.click(screen.getByRole("button", { name: "Channel members" }));
+    await vi.waitFor(() => expect(rosterReads()).toBe(before + 1));
+    expect(screen.getByText("Carl (you)")).toBeVisible();
+    expect(screen.queryByText("Loading members…")).not.toBeInTheDocument();
+    const add = await t.search();
+    expect(add).toBeDisabled();
+    // No matching members is not an empty roster.
+    expect(screen.queryByText("Loading members…")).not.toBeInTheDocument();
+    await act(async () => release());
+    const retry = await screen.findByRole("button", { name: "Retry members" });
+    expect(add).toBeDisabled();
+    t.holdRoster(undefined);
+    await t.user.click(retry);
+    await vi.waitFor(() => expect(add).toBeEnabled());
+    expect(t.publish).not.toHaveBeenCalled();
+  } finally {
+    await act(async () => release());
+  }
+});

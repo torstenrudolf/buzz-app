@@ -13,27 +13,36 @@ afterEach(() => {
   vi.useRealTimers();
 });
 it.each([
-  [new Date(2026, 8, 24, 9, 5), "Today at"],
-  [new Date(2026, 8, 23, 9, 5), "Yesterday at"],
-  [new Date(2026, 8, 17, 9, 5), "Sep 17 at"],
-  [new Date(2025, 8, 17, 9, 5), "Sep 17, 2025 at"],
-])("gives %s day context and a full accessible date", (date, label) => {
-  const { container } = render(
-    <MessageTimestamp createdAt={date.getTime() / 1000} />,
-  );
-  expect(container.querySelector("time")).toHaveAttribute(
-    "datetime",
-    date.toISOString(),
-  );
-  expect(container.querySelector('[aria-hidden="true"]')).toHaveTextContent(
-    label,
-  );
-  expect(
-    screen.getByText(
-      date.toLocaleString(undefined, { dateStyle: "full", timeStyle: "long" }),
-    ),
-  ).toHaveClass("sr-only");
-});
+  [new Date(2026, 8, 24, 9, 5)],
+  [new Date(2026, 8, 23, 9, 5)],
+  [new Date(2026, 8, 17, 9, 5)],
+  [new Date(2025, 8, 17, 9, 5)],
+])(
+  "shows only the clock for %s while retaining the full accessible date",
+  (date) => {
+    const { container } = render(
+      <MessageTimestamp createdAt={date.getTime() / 1000} />,
+    );
+    expect(container.querySelector("time")).toHaveAttribute(
+      "datetime",
+      date.toISOString(),
+    );
+    expect(container.querySelector('[aria-hidden="true"]')).toHaveTextContent(
+      new Intl.DateTimeFormat(undefined, {
+        hour: "numeric",
+        minute: "2-digit",
+      }).format(date),
+    );
+    expect(
+      screen.getByText(
+        date.toLocaleString(undefined, {
+          dateStyle: "full",
+          timeStyle: "long",
+        }),
+      ),
+    ).toHaveClass("sr-only");
+  },
+);
 it("keeps the continuation clock compact without dropping its accessible date", () => {
   const date = new Date(2026, 8, 24, 9, 5);
   const { container } = render(

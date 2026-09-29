@@ -2,8 +2,12 @@
 
 Profiles show Active, Away, or Offline with text, while avatar badges use
 solid status fills. Pending, failed, stale, or unavailable evidence renders no
-status; it is not relabeled Offline. Message and thread bylines display badges
-and demand presence when mounted, as do one-to-one DM avatars in the sidebar.
+status; it is not relabeled Offline. People's message and thread bylines omit presence badges and custom status symbols.
+One-to-one DM avatars and profiles retain them. Agent message avatars retain presence
+badges and demand presence when mounted. Their online badge morphs into a centered
+three-dot pill while the existing agent activity feed reports working or typing;
+activity is scoped to the displayed conversation when one is supplied. The same
+indicator is used in DM rows and agent profiles. It publishes no presence changes.
 This describes recent Buzz session status in this community, not proof that a
 person is available. Signed live status changes arrive on the existing socket;
 bounded snapshots repair missed events and disconnects. The relay stores one status per community/pubkey:
@@ -32,7 +36,7 @@ or identity change cancels it, and late confirmation clears a timeout message.
 Same-value commands also ask the existing publisher to reassert the status.
 
 Online label text and avatar centers use Green 10. Away avatar centers and label backgrounds
-use Amber 10; the avatar badges have Green 11 / Amber 11 outlines against surrounding surfaces.
+use Amber 10. Online retains its Green 11 outline; Away has no outline.
 Away label text uses the mode-aware Amber 12 `text-warning` role.
 Label backgrounds mix their status color at 12%, 18% on hover, and 24% while
 pressed/open. Online and neutral Offline mix over `surface-inset` for a darker
@@ -47,8 +51,12 @@ light menu and #333333 dark menu, label contrast is:
 
 These are WCAG contrast ratios. Away and Offline pass AA's 4.5:1 small-text
 target in both modes. Online passes in dark mode but still fails in light mode,
-where darkening its fill reduces contrast with Green 10 text. The avatar
-outlines meet the 3:1 non-text boundary target against supported surfaces.
+where darkening its fill reduces contrast with Green 10 text. The Online avatar
+outline meets the 3:1 non-text boundary target against supported surfaces.
+The unoutlined light Away badge deliberately falls below 3:1; this is an
+accepted visual tradeoff, not an accessibility pass. Dark Away meets 3:1 on
+the measured opaque surfaces. See the identity-shape guidance in
+[DESIGN.md](../src/shared/design-system/DESIGN.md#identity-shapes).
 
 The design guide also requires APCA Lc60 for text. Online misses that target in
 both themes: approximately Lc40–48 in light mode and Lc44–47 in dark mode across

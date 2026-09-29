@@ -70,6 +70,7 @@ function Library({
       )}
       {open && (
         <ChannelTemplatesDialog
+          session={session}
           open={open}
           onOpenChange={setOpen}
           kit={session.channelKit}
@@ -129,6 +130,7 @@ export function SaveAsTemplate({
       {error && <p role="alert">{error}</p>}
       {draft && (
         <ChannelTemplatesDialog
+          session={session}
           open
           onOpenChange={(open) => {
             if (!open) setDraft(undefined);

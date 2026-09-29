@@ -1,4 +1,8 @@
 import {
+  EnvelopeIcon,
+  EnvelopeOpenIcon,
+} from "../../shared/design-system/icons";
+import {
   createContext,
   useContext,
   useEffect,
@@ -8,7 +12,7 @@ import {
 } from "react";
 import { Button } from "../../shared/design-system/ui/Button";
 import { AlertDialog } from "../../shared/design-system/ui/AlertDialog";
-import { MenuItem, MenuSeparator } from "../../shared/design-system/ui/Menu";
+import { MenuItem, MenuIcon } from "../../shared/design-system/ui/Menu";
 import type { ChannelMessage } from "../relay/contracts";
 import type { RelaySession } from "../relay/session";
 import type { OutgoingEvent } from "../relay/outbox";
@@ -161,11 +165,9 @@ export function MessageManagement({
 export function MessageManagementItems({
   row,
   session,
-  separated = false,
 }: {
   row: ChannelMessage;
   session: RelaySession;
-  separated?: boolean;
 }) {
   const management = useContext(Management);
   const editor = useMessageEditScope();
@@ -209,7 +211,6 @@ export function MessageManagementItems({
     afterClose ? afterClose(action) : action();
   return (
     <>
-      {separated && <MenuSeparator />}
       {canEdit && (
         <MenuItem
           disabled={
@@ -268,6 +269,7 @@ export function MessageManagementItems({
           );
         }}
       >
+        <MenuIcon>{unread ? <EnvelopeOpenIcon /> : <EnvelopeIcon />}</MenuIcon>
         {unread ? "Mark read" : "Mark unread"}
       </MenuItem>
     </>

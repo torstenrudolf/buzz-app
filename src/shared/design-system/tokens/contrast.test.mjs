@@ -55,6 +55,7 @@ describe("semantic contrast contract", () => {
       "checked text and control/state boundaries",
     );
     expect(result.output.match(/\(accepted link contrast\)/g)).toHaveLength(8);
+    expect(result.output.match(/\(accepted Away contrast\)/g)).toHaveLength(9);
     expect(result.output).toContain("not a contrast pass");
     expect(result.output).not.toContain("exceptions no longer needed");
   });
@@ -147,7 +148,7 @@ describe("semantic contrast contract", () => {
   it.each([
     ["online", "green"],
     ["avatar-online-border", "green"],
-    ["avatar-away-border", "amber"],
+    ["away", "amber"],
     ["offline", "neutral"],
   ])("checks %s status on supported surfaces in both modes", (role, hue) => {
     const result = check(
@@ -165,10 +166,7 @@ describe("semantic contrast contract", () => {
     );
   });
 
-  it.each([
-    ["online", "green"],
-    ["away", "amber"],
-  ])(
+  it.each([["online", "green"]])(
     "rejects a %s outline that disappears on hover or selection",
     (role, hue) => {
       const result = check(
@@ -181,6 +179,41 @@ describe("semantic contrast contract", () => {
       expect(result.output).toContain(
         `light: --status-avatar-${role}-border on --affordance-selected`,
       );
+    },
+  );
+
+  it.each([
+    [
+      "fill",
+      "--amber-10: #ffba18;",
+      "--amber-10: #ffba19;",
+      "light: --status-away on --surface-panel",
+    ],
+    [
+      "surface",
+      "--neutral-4: #dadada;",
+      "--neutral-4: #dbdbdb;",
+      "light: --status-away on --neutral-4",
+    ],
+    [
+      "dark mode",
+      "--amber-10: #ffd60a;",
+      "--amber-10: #333333;",
+      "dark: --status-away on --surface-popover",
+    ],
+    [
+      "other role",
+      "--status-offline: var(--neutral-8);",
+      "--status-offline: var(--amber-10);",
+      "light: --status-offline on --surface-panel",
+    ],
+  ])(
+    "does not extend the Away exception to a changed %s",
+    (_name, from, to, pairing) => {
+      expect(tokens).toContain(from);
+      const result = check(tokens.replaceAll(from, to));
+      expect(result.status, result.output).toBe(1);
+      expect(result.output).toContain(pairing);
     },
   );
 

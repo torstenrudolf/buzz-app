@@ -19,7 +19,8 @@ import { Dialog } from "../../shared/design-system/ui/Dialog";
 import { IconButton } from "../../shared/design-system/ui/IconButton";
 import { Button } from "../../shared/design-system/ui/Button";
 import { SearchField } from "../../shared/design-system/ui/SearchField";
-import { Avatar } from "../../shared/design-system/ui/Avatar";
+import { AgentOwnerPreview } from "../../features/profiles/AgentOwnerPreview";
+import { IdentityRow } from "../../shared/identity/IdentityRow";
 import { NavigationItem } from "../../shared/design-system/ui/NavigationItem";
 import { UsersIcon } from "../../shared/design-system/icons";
 import { useMemberSearch } from "./useMemberSearch";
@@ -252,52 +253,50 @@ export function ChannelMembersDialog({
   ) => {
     const isAgent = agent || known.has(key) || profiles.get(key)?.isAgent;
     const artwork = picture ?? profiles.get(key)?.picture;
-    const content = (
-      <>
-        <span className="block truncate text-body-sm">
-          {name}
-          {key === session.viewer ? " (you)" : ""}
-        </span>
-        <span className="block truncate text-caption text-subtle">
-          {isAgent ? "Agent · " : ""}
-          {keys.get(key)}
-          {archived.has(key) ? " · Archived" : ""}
-        </span>
-      </>
-    );
-    const avatar = (
-      <Avatar
-        alt=""
-        fallback={name}
-        src={artwork ? session.media(artwork, "small") : undefined}
-        size="small"
-        shape={isAgent ? "squircle" : "circle"}
+    const identity = (
+      <IdentityRow
+        pubkey={key}
+        name={`${name}${key === session.viewer ? " (you)" : ""}`}
+        picture={artwork ? session.media(artwork, "small") : undefined}
+        isAgent={isAgent}
+        keyLabel={keys.get(key)}
+        previewDetail={
+          isAgent ? (
+            <AgentOwnerPreview session={session} pubkey={key} />
+          ) : undefined
+        }
+        detail={archived.has(key) ? "Archived" : undefined}
+        render={
+          adding
+            ? (content, previewProps) => (
+                <NavigationItem
+                  {...previewProps}
+                  label={content}
+                  trailing={busy.has(key) ? "Adding…" : "Add"}
+                  aria-label={`Add ${name} (${npubEncode(key)})`}
+                  aria-disabled={busy.has(key) || undefined}
+                  disabled={rosterBusy || !!rosterError}
+                  onBlur={(event) => {
+                    if (focusedAdd.current?.button === event.currentTarget)
+                      focusedAdd.current = null;
+                  }}
+                  onClick={(event) => {
+                    if (busy.has(key)) return;
+                    if (document.activeElement === event.currentTarget)
+                      focusedAdd.current = { key, button: event.currentTarget };
+                    void add(key);
+                  }}
+                />
+              )
+            : undefined
+        }
       />
     );
     return adding ? (
-      <NavigationItem
-        key={key}
-        label={content}
-        icon={avatar}
-        trailing={busy.has(key) ? "Adding…" : "Add"}
-        aria-label={`Add ${name} (${keys.get(key)})`}
-        aria-disabled={busy.has(key) || undefined}
-        disabled={rosterBusy || !!rosterError}
-        onBlur={(event) => {
-          if (focusedAdd.current?.button === event.currentTarget)
-            focusedAdd.current = null;
-        }}
-        onClick={(event) => {
-          if (busy.has(key)) return;
-          if (document.activeElement === event.currentTarget)
-            focusedAdd.current = { key, button: event.currentTarget };
-          void add(key);
-        }}
-      />
+      <div key={key}>{identity}</div>
     ) : (
-      <li key={key} className="flex items-center gap-3 px-control-inset py-2">
-        {avatar}
-        <span className="min-w-0 flex-1">{content}</span>
+      <li key={key} className="flex items-center px-control-inset py-2">
+        {identity}
       </li>
     );
   };
@@ -334,7 +333,7 @@ export function ChannelMembersDialog({
                   : "Join this channel to add people and agents."}
           </p>
         )}
-        {rosterBusy && (
+        {rosterBusy && !members.size && (
           <p role="status" className="text-body-sm text-subtle">
             Loading members…
           </p>

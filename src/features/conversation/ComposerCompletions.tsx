@@ -125,6 +125,7 @@ function OwnedCompletion({
   const list = useRef<HTMLDivElement>(null);
   const [result, setResult] = useState<CompletionResult>();
   const latest = useRef<CompletionResult | undefined>(undefined);
+  // Only user navigation pins an ID; automatic selection follows the first result.
   const [selected, setSelected] = useState<string | typeof RETRY>();
   const revealSelection = useRef(false);
   const live = useRef(false);
@@ -154,7 +155,7 @@ function OwnedCompletion({
           ? previous
           : previous === RETRY && next.retry
             ? RETRY
-            : next.items[0]?.id,
+            : undefined,
       );
       return () => {
         if (latest.current !== next) return;

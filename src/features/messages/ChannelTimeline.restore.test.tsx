@@ -130,6 +130,13 @@ function mount(bottom = false) {
         tree({ ...window, rows: [...window.rows, sent] }, sent.id),
       );
     },
+    replaceAnchor() {
+      const first = window.rows[0];
+      if (!first) throw new Error("Missing fixture row");
+      result.rerender(
+        tree({ ...window, rows: [{ ...first, id: "replacement" }] }),
+      );
+    },
     promote() {
       result.rerender(
         tree({ ...window, freshness: "verified", rows: [...window.rows] }),
@@ -211,5 +218,80 @@ it.each([false, true])(
     expect(readView("scope", "scroll:c", null)).toEqual(
       readerInput ? { offset: 900, bottom: false } : h.saved,
     );
+  },
+);
+
+it.each([false, true])(
+  "does not turn cold clamps into reader follow intent, repeated=%s",
+  async (repeat) => {
+    const h = mount();
+    await frame();
+    const feed = screen.getByRole("region", {
+      name: "Channel message history",
+    });
+    // Cold estimated row heights can clamp the restoring viewport to the bottom.
+    // The saved row is mounted, so this is not the anchorless-range case above.
+    let rowY = 84;
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+      function (this: HTMLElement) {
+        return new DOMRect(0, this.closest("ol") ? rowY : 0, 800, 100);
+      },
+    );
+    feed.scrollTop = 1400;
+    fireEvent.scroll(feed);
+    if (repeat) {
+      feed.scrollTop = 1200;
+      rowY = 284;
+      fireEvent.scroll(feed);
+      feed.scrollTop = 1400;
+      rowY = 84;
+      fireEvent.scroll(feed);
+    }
+    scroll.toIndex.mockClear();
+    h.promote();
+    await frame();
+    expect(scroll.toIndex).toHaveBeenLastCalledWith(0, {
+      align: "start",
+      offset: -42,
+    });
+    h.unmount();
+    expect(readView("scope", "scroll:c", null)).toEqual(h.saved);
+  },
+);
+
+it.each(
+  ["converged", "removed", "pending"].flatMap((boundary) =>
+    [false, true].map((readerInput) => ({ boundary, readerInput })),
+  ),
+)(
+  "restoration $boundary enters bottom follow only after reader input=$readerInput",
+  async ({ boundary, readerInput }) => {
+    const h = mount();
+    await frame();
+    const feed = screen.getByRole("region", {
+      name: "Channel message history",
+    });
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+      function (this: HTMLElement) {
+        return new DOMRect(0, this.closest("ol") ? 42 : 0, 800, 100);
+      },
+    );
+    if (boundary === "converged") {
+      feed.scrollTop = 900;
+      fireEvent.scroll(feed);
+    } else if (boundary === "removed") {
+      h.replaceAnchor();
+      await frame();
+    }
+    // Layout convergence or anchor removal is not new reader intent. A real
+    // gesture retires restoration and allows the next bottom scroll to follow.
+    if (readerInput) fireEvent.pointerDown(feed);
+    feed.scrollTop = 1400;
+    fireEvent.scroll(feed);
+    h.unmount();
+    expect(
+      readView<{ bottom: boolean }>("scope", "scroll:c", { bottom: false })
+        .bottom,
+    ).toBe(readerInput);
   },
 );

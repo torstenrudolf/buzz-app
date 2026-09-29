@@ -1,3 +1,4 @@
+import { channelVisibility } from "./channel-details-protocol";
 import { sessionMetadata } from "../sessions/metadata";
 import { objectBody } from "./body";
 import { newer, hasTag, tag, type RelayEvent } from "./events";
@@ -209,6 +210,14 @@ export class DiscoveryState {
         : {}),
       ...(this.cached.has(id) ? { cached: true as const } : {}),
       name: this.name(id),
+      ...(event
+        ? {
+            visibility: channelVisibility(event),
+            ...(channelType !== "session"
+              ? { description: tag(event, "about") ?? "" }
+              : {}),
+          }
+        : {}),
       members: Object.freeze(
         [
           ...new Set(

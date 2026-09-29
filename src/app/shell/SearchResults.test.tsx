@@ -22,6 +22,7 @@ import {
 } from "../../features/relay/testing";
 import type { LiveCallbacks } from "../../features/relay/live";
 import { SearchResults } from "./SearchResults";
+import { ChatCircleIcon } from "../../shared/design-system/icons/index";
 
 afterEach(() => {
   cleanup();
@@ -348,6 +349,96 @@ it("does not reveal a revoked public hit queued before React commits its result"
     expect(
       screen.queryByRole("option", { name: /crew queued result/ }),
     ).toBeNull();
+  } finally {
+    cleanup();
+    owner.dispose();
+  }
+});
+
+it.each(["", "Crew"])(
+  "explains cold conversation loading without redundant banners (query=%s)",
+  async (query) => {
+    const relay = keypair();
+    const viewer = keypair();
+    const wire = scriptedTransport(viewer.pubkey, relay.pubkey);
+    const discovery = [
+      metadata(relay, "crew", "Crew"),
+      roster(relay, "crew", [viewer.pubkey]),
+    ];
+    const owner = createRelaySession({
+      ...wire.transport,
+      query(filters, signal) {
+        return filters.some((filter) => filter.kinds?.includes(39002))
+          ? wire.transport.query(filters, signal)
+          : Promise.resolve(discovery);
+      },
+    });
+    try {
+      render(
+        <SearchResults
+          session={owner.session}
+          query={query}
+          onQueryChange={() => {}}
+          input={createRef()}
+          pages={[
+            {
+              key: "settings",
+              label: "Settings",
+              icon: ChatCircleIcon,
+              run() {},
+            },
+          ]}
+          openConversation={() => {}}
+        />,
+      );
+      const pending = wire.next();
+      expect(owner.session.channels.list().status).toBe("loading");
+      expect(screen.getByRole("option", { name: /Settings/ })).toBeVisible();
+      if (query) {
+        expect(screen.getByText("Loading joined conversations…")).toBeVisible();
+        expect(screen.queryByText("Loading recent conversations…")).toBeNull();
+      } else {
+        expect(screen.getByText("Loading recent conversations…")).toBeVisible();
+        expect(screen.queryByText("Loading joined conversations…")).toBeNull();
+      }
+      await act(async () => pending.respond(discovery));
+      expect(await screen.findByRole("option", { name: /Crew/ })).toBeVisible();
+      expect(screen.queryByText("Loading joined conversations…")).toBeNull();
+      expect(screen.getByRole("option", { name: /Settings/ })).toBeVisible();
+    } finally {
+      cleanup();
+      owner.dispose();
+    }
+  },
+);
+
+it("does not announce conversation enrichment over retained search choices", () => {
+  const owner = createRelaySession(null);
+  const session = {
+    ...owner.session,
+    channels: {
+      ...owner.session.channels,
+      list: () => list,
+      ensureList() {},
+    },
+  };
+  const list = {
+    status: "loading" as const,
+    channels: [{ id: "crew", name: "Crew", channelType: "stream" as const }],
+  };
+  try {
+    render(
+      <SearchResults
+        session={session}
+        query="Crew"
+        onQueryChange={() => {}}
+        input={createRef()}
+        pages={[]}
+        openConversation={() => {}}
+      />,
+    );
+    expect(screen.getByRole("option", { name: /Crew/ })).toBeVisible();
+    expect(screen.queryByText("Loading joined conversations…")).toBeNull();
   } finally {
     cleanup();
     owner.dispose();

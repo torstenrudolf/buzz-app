@@ -21,6 +21,7 @@ function setup(restarted = 0, restartFailures = 0) {
     provider: "databricks_v2",
     model: "old-model",
     effort: "high",
+    sessionPolicy: "channel",
     environmentKeys: ["SAVED_TOKEN"],
   };
   const saveDefaults = fixture.host.saveDefaults;
@@ -68,6 +69,10 @@ it("changing the default harness clears model and effort and saves write-only en
     within(card).getByRole("combobox", { name: "Default harness" }),
   );
   await user.click(await screen.findByRole("option", { name: "Goose" }));
+  await user.click(
+    within(card).getByRole("combobox", { name: "Conversation context" }),
+  );
+  await user.click(await screen.findByRole("option", { name: "Each thread" }));
   expect(within(card).getByLabelText("Default model")).toHaveValue("");
   expect(within(card).getByLabelText("Default effort")).toHaveValue("");
   await user.type(within(card).getByLabelText("Name"), "NEW_KEY");
@@ -90,6 +95,7 @@ it("changing the default harness clears model and effort and saves write-only en
         provider: "databricks_v2",
         model: "",
         effort: "",
+        sessionPolicy: "thread",
         environment: { NEW_KEY: "secret-value", SAVED_TOKEN: null },
       },
     },

@@ -8,8 +8,8 @@ function Preview() {
     <main>
       <h1>Avatar badge colors</h1>
       <p>
-        Online and Away use step-10 centers with a 1px step-11 outline. Offline,
-        text colors, avatar sizes, and the Bézier notch stay unchanged.
+        Away now uses a solid Amber 10 fill without a stroke. Online, Offline,
+        avatar sizes, and the Bézier notch stay unchanged.
       </p>
       <div className="comparison">
         {(["light", "dark"] as const).flatMap((mode) =>
@@ -20,7 +20,7 @@ function Preview() {
             >
               <h2>
                 {mode === "light" ? "Light" : "Dark"} ·{" "}
-                {before ? "baseline · step 11" : "step 10 + outline"}
+                {before ? "before · outlined Away" : "after · solid Away"}
               </h2>
               {(["circle", "squircle"] as const).map((shape) => (
                 <div className="avatar-row" key={shape}>
@@ -52,13 +52,13 @@ function Preview() {
       </div>
       <p className="note">
         Real Avatar components at 24, 32, and 40px, in both shapes and themes.
-        The outline is the visible status boundary: its lowest measured contrast
-        is 3.30:1 on supported opaque surfaces, including selection and hover.
-        The step-10 centers alone do not meet 3:1 on every surface.
+        Known accessibility tradeoff: light Away measures 1.22–1.71:1 against
+        supported opaque surfaces, below the 3:1 non-text contrast target. Dark
+        Away remains above 3:1 on those surfaces.
       </p>
       <p className="note">
-        “Baseline” reproduces Buzz 2.0’s unchanged step-11 badges. It is not a
-        screenshot of the installed legacy Buzz app.
+        “Before” reproduces the previous Away outline on the same shared Avatar
+        component. “After” uses the current production styles.
       </p>
     </main>
   );

@@ -1,36 +1,70 @@
-import { useId, type ComponentProps } from "react";
-import { Switch } from "./Switch";
+import { useId, type ReactNode } from "react";
 
+type ControlLabel = {
+  "aria-labelledby": string;
+  "aria-describedby"?: string | undefined;
+};
+
+/** Shared settings layout. The trailing control owns interaction and state. */
 export function PreferenceRow({
-  label,
-  description,
-  id,
-  ...props
+  icon,
+  title,
+  subtitle,
+  trailing,
+  controlId,
+  accessibleTitle,
+  disabled = false,
 }: {
-  label: string;
-  description?: string;
-} & Omit<ComponentProps<typeof Switch>, "label" | "aria-label">) {
-  const generatedId = useId();
-  const controlId = id ?? generatedId;
-  const descriptionId = description ? `${controlId}-description` : undefined;
+  icon?: ReactNode;
+  title: ReactNode;
+  subtitle?: ReactNode;
+  trailing?: ReactNode | ((label: ControlLabel) => ReactNode);
+  /** Associate the title with a switch, checkbox, or other labelled input. */
+  controlId?: string;
+  accessibleTitle?: string | undefined;
+  disabled?: boolean | undefined;
+}) {
+  const id = useId();
+  const titleId = `${id}-title`;
+  const subtitleId = subtitle ? `${id}-subtitle` : undefined;
+  const Title = controlId ? "label" : "div";
   return (
-    <div data-buzz-ui="" className="buzz-preference-row">
+    <div
+      data-buzz-ui=""
+      className="buzz-preference-row"
+      data-disabled={disabled || undefined}
+      data-has-icon={icon ? "" : undefined}
+    >
+      {icon && (
+        <span className="buzz-preference-row-icon" aria-hidden="true">
+          {icon}
+        </span>
+      )}
       <div className="buzz-preference-row-content">
-        <label className="buzz-preference-row-label" htmlFor={controlId}>
-          {label}
-        </label>
-        {description && (
-          <span id={descriptionId} className="buzz-preference-row-description">
-            {description}
+        <Title
+          id={titleId}
+          className="buzz-preference-row-label"
+          htmlFor={controlId}
+          aria-label={accessibleTitle}
+        >
+          {title}
+        </Title>
+        {subtitle && (
+          <span id={subtitleId} className="buzz-preference-row-description">
+            {subtitle}
           </span>
         )}
       </div>
-      <Switch
-        {...props}
-        id={controlId}
-        aria-label={label}
-        aria-describedby={descriptionId}
-      />
+      {trailing != null && (
+        <div className="buzz-preference-row-trailing">
+          {typeof trailing === "function"
+            ? trailing({
+                "aria-labelledby": titleId,
+                "aria-describedby": subtitleId,
+              })
+            : trailing}
+        </div>
+      )}
     </div>
   );
 }

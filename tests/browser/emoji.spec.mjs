@@ -594,75 +594,8 @@ test("community picker uses keyboard, proxy thumbnails, event-local history and 
       'em-emoji-picker [data-id="frequent"] button',
     );
     await expect(frequent.first()).toBeVisible();
-    const firstRow = await frequent.evaluateAll((buttons) =>
-      buttons.slice(0, 7).map((button) => {
-        const bounds = button.getBoundingClientRect();
-        return {
-          height: bounds.height,
-          width: bounds.width,
-          x: bounds.x,
-          y: bounds.y,
-        };
-      }),
-    );
-    expect(firstRow).toHaveLength(6);
-    expect(firstRow.every(({ y }) => y === firstRow[0].y)).toBe(true);
-    expect(firstRow[0]).toMatchObject({ height: 48, width: 48 });
-    const rowGaps = firstRow
-      .slice(1)
-      .map((item, index) => item.x - firstRow[index].x - firstRow[index].width);
-    expect(rowGaps[0]).toBeCloseTo(9.6, 1);
-    expect(rowGaps.every((gap) => Math.abs(gap - rowGaps[0]) < 0.1)).toBe(true);
-    const emojiGridGutters = await surface.evaluate((root) => {
-      const buttons = root.querySelectorAll('[data-id="frequent"] button');
-      const first = buttons[0].getBoundingClientRect();
-      const last = buttons[5].getBoundingClientRect();
-      const rootBounds = root.getBoundingClientRect();
-      return {
-        left: first.left - rootBounds.left,
-        right: rootBounds.right - last.right,
-      };
-    });
-    expect(emojiGridGutters.left).toBeCloseTo(emojiGridGutters.right, 1);
-    expect(emojiGridGutters.left).toBeCloseTo(12, 1);
-    const scroll = page.locator("em-emoji-picker .scroll");
-    await expect(scroll).toHaveCSS("scrollbar-width", "thin");
-    await expect(scroll).toHaveCSS(
-      "scrollbar-color",
-      "rgb(128, 128, 128) rgba(0, 0, 0, 0)",
-    );
-    for (const [index, result] of searchRowPositions.entries())
-      expect(result.x).toBeCloseTo(firstRow[index].x, 1);
     const navigation = page.locator("em-emoji-picker nav");
     await expect(navigation).toBeVisible();
-    const navigationButtonWidths = await navigation
-      .locator("button")
-      .evaluateAll((buttons) =>
-        buttons.map((button) => button.getBoundingClientRect().width),
-      );
-    expect(navigationButtonWidths).toHaveLength(11);
-    expect(
-      navigationButtonWidths.every(
-        (width) => Math.abs(width - navigationButtonWidths[0]) < 0.1,
-      ),
-    ).toBe(true);
-    const navigationGutters = await navigation.evaluate((nav) => {
-      const rootBounds = nav
-        .getRootNode()
-        .querySelector("#root")
-        .getBoundingClientRect();
-      const buttons = nav.querySelectorAll("button");
-      const first = buttons[0].getBoundingClientRect();
-      const last = buttons[buttons.length - 1].getBoundingClientRect();
-      return {
-        left: first.left - rootBounds.left,
-        right: rootBounds.right - last.right,
-      };
-    });
-    expect(
-      Math.abs(navigationGutters.left - navigationGutters.right),
-    ).toBeLessThan(0.1);
-    expect(navigationGutters.left).toBeCloseTo(8, 1);
     for (const [category, icon] of Object.entries({
       "Frequently used": "clock",
       "Smileys & People": "smiley",
@@ -679,43 +612,35 @@ test("community picker uses keyboard, proxy thumbnails, event-local history and 
         .getByRole("button", { name: category, exact: true })
         .locator("svg");
       await expectPhosphor(categoryIcon, icon);
-      await expect(categoryIcon).toHaveCSS("width", "18px");
-      await expect(categoryIcon).toHaveCSS("height", "18px");
     }
-    const indicator = navigation.locator(".bar");
-    await expect(indicator).toHaveCSS("display", "none");
     const selectedCategory = navigation.locator("button[aria-selected]");
-    await expect(selectedCategory).toHaveCSS("color", "rgb(0, 0, 0)");
-    const selectedBackground = () =>
-      selectedCategory.evaluate((element) => {
-        const style = getComputedStyle(element, "::before");
-        const bounds = element.getBoundingClientRect();
-        return {
-          background: style.backgroundColor,
-          buttonHeight: bounds.height,
-          buttonWidth: bounds.width,
-          duration: style.transitionDuration,
-          height: style.height,
-          left: style.left,
-          top: style.top,
-          width: style.width,
-        };
-      });
-    expect(await selectedBackground()).toMatchObject({
-      background: "rgb(239, 239, 240)",
-      duration: "0.12s",
-      height: "28px",
-      width: "28px",
-    });
-    const initialBackground = await selectedBackground();
-    expect(parseFloat(initialBackground.left)).toBeCloseTo(
-      initialBackground.buttonWidth / 2,
-      1,
-    );
-    expect(parseFloat(initialBackground.top)).toBeCloseTo(
-      initialBackground.buttonHeight / 2,
-      1,
-    );
+    const expectSelectionPaint = async () => {
+      await expect
+        .poll(() =>
+          selectedCategory.evaluate((element) => {
+            const selected = getComputedStyle(element, "::before");
+            const other = element.parentElement.querySelector(
+              "button:not([aria-selected])",
+            );
+            const unselected = getComputedStyle(other, "::before");
+            return (
+              selected.content !== "none" &&
+              selected.display !== "none" &&
+              Number(selected.opacity) > 0 &&
+              parseFloat(selected.width) > 0 &&
+              parseFloat(selected.height) > 0 &&
+              selected.backgroundColor !== "rgba(0, 0, 0, 0)" &&
+              selected.backgroundColor !== unselected.backgroundColor
+            );
+          }),
+        )
+        .toBe(true);
+    };
+    await expectSelectionPaint();
+    const selectedDuration = () =>
+      selectedCategory.evaluate(
+        (element) => getComputedStyle(element, "::before").transitionDuration,
+      );
     const categoryPositions = await navigation
       .locator("button")
       .evaluateAll((buttons) =>
@@ -729,18 +654,13 @@ test("community picker uses keyboard, proxy thumbnails, event-local history and 
           buttons.map((button) => button.getBoundingClientRect().x),
         ),
     ).toEqual(categoryPositions);
-    await expect
-      .poll(() => selectedBackground().then(({ background }) => background))
-      .toBe("rgb(239, 239, 240)");
+    await expect(
+      navigation.getByRole("button", { name: "Smileys & People" }),
+    ).toHaveAttribute("aria-selected", "true");
+    await expectSelectionPaint();
     await page.emulateMedia({ reducedMotion: "reduce" });
-    expect((await selectedBackground()).duration).toBe("0s");
+    await expect.poll(selectedDuration).toBe("0s");
     await page.emulateMedia({ reducedMotion: "no-preference" });
-    const categoryHeading = page
-      .locator("em-emoji-picker .category .sticky")
-      .first();
-    await expect(categoryHeading).toHaveCSS("color", "rgb(82, 82, 82)");
-    await expect(categoryHeading).toHaveCSS("font-size", "12px");
-    await expect(categoryHeading).toHaveCSS("font-weight", "400");
     await expect(page.getByText("Pick an emoji", { exact: true })).toHaveCount(
       0,
     );

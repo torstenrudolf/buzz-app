@@ -130,14 +130,38 @@ belong to the session.
 
 The owner resolves marked NIP-10 ancestry to the actual root, fetches that root by
 ID, and traverses with explicit content kinds, `#h`, one root `#e`, depth 100 and
-`include_aux`. Pages advance with both `thread_cursor` and `thread_cursor_id` in
-ascending time/ID order. The cursor comes only from exact verified finite traversal
-rows, excluding appended auxiliary events—not the public read's live/local union.
-There is no fabricated thread `39006` or authoritative exhaustion claim.
+`include_aux`. Canonical UUID channels probe `thread_window: true` separately from
+the root lookup. Strict windows request kinds 9 and 40002 only: the relay's
+window row allowlist rejects legacy diff kind 40008, so strict threads omit diff
+replies until the relay accepts that kind; legacy traversal still includes it. The existing verified reader validates exactly one kind-39007
+bounds event, relay signer, exact tags, version/direction and full host/viewer/request
+binding before any page enters session reconciliation. The destination's authority,
+not the local broker host, supplies the binding. Both shipped transports provide
+this authority through `ReadTransport.scope`; its absence is a configuration error,
+not evidence of an old relay, and does not permit legacy fallback. Strict
+continuation echoes signed `until`/`before_id`; only bounds establish exhaustion,
+including empty pages whose raw scan cursor does not occur among delivered events.
 
-Each page requests 50 traversal rows, with at most ten pages per repair/load range.
-The shared panel automatically loads this range with no explicit pagination button.
-It remains oldest-first: a capped thread cannot promise its newest tail.
+Strict root admission/validation runs once before each load or refresh traversal,
+not between the pages of a retained-range repair: repairing N pages uses one root
+read plus N independently verified window reads. Each separate scrollback load
+still reads the root. Root deletion observed live and access revocation retain their
+existing session paths; a later refresh/load revalidates the root. Neither the root
+lookup nor the page sequence provides an atomic snapshot.
+
+A first probe returning verified replies but no bounds is discarded and restarted
+with clean legacy `thread_cursor`/`thread_cursor_id` state. Empty unsigned responses
+cannot distinguish old empty history from denied access, so remain unavailable.
+Other failures, invalid bounds and missing bounds after a strict page never trigger
+fallback. Non-UUID channels retain the legacy path. No capability cache persists
+across owners or connections.
+
+Each strict thread starts with 10 traversal rows plus their auxiliary events; later pages
+request 50 traversal rows, with at most ten pages per repair/load range. Legacy
+mode still requests 50 rows per page. The shared panel positions after the first
+strict page and demand-loads older pages on scrollback. Legacy mode still
+automatically walks its bounded oldest-first range and cannot promise the newest
+tail. Media review retains eager bounded traversal.
 Refresh re-reads the retained page range from the beginning while preserving known
 rows/edits/deletes: omitted events are not retractions. Live channel traffic feeds
 this same view without another subscription. Channel establishment triggers repair

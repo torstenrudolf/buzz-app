@@ -15,7 +15,7 @@ import { Button } from "../../shared/design-system/ui/Button";
 import { IconButton } from "../../shared/design-system/ui/IconButton";
 import { useChannelPanels } from "./useChannelPanels";
 import { ChannelSettingsPanel } from "./ChannelSettingsPanel";
-import { ChannelLeaveButton } from "./ChannelLeaveButton";
+import { ChannelLifecycleActions } from "./ChannelLifecycleActions";
 import type { PageNavigation } from "../../features/navigation/service";
 import type { Navigation } from "../../features/navigation/controller";
 import {
@@ -397,6 +397,15 @@ function ChannelWorkspace({
       ? navigation.target.threadRootId
       : undefined;
   const currentId = current?.id;
+  useEffect(() => {
+    if (!currentId || composingMessage || draftParent) return;
+    // Retire this visit's reveal intent without discarding a new-DM handoff.
+    return () => {
+      setSent((previous) =>
+        previous?.channelId === currentId ? undefined : previous,
+      );
+    };
+  }, [currentId, composingMessage, draftParent]);
   const [settings, setSettings] = useState<{
     channelId: string | undefined;
     entryId: string | undefined;
@@ -664,11 +673,11 @@ function ChannelWorkspace({
     hasComments: boolean;
     entryId?: string | undefined;
   }>();
-  const showingMediaReview = mediaReviewForDestination(
-    mediaReview,
-    current?.id,
-    navigation?.entryId,
-  );
+  // The current destination may be an authorized public preview, which is
+  // intentionally absent from the joined-channel list.
+  const showingMediaReview = current?.archived
+    ? undefined
+    : mediaReviewForDestination(mediaReview, current?.id, navigation?.entryId);
   useEffect(() => {
     if (mediaReview && !showingMediaReview) setMediaReview(undefined);
   }, [mediaReview, showingMediaReview]);
@@ -705,17 +714,6 @@ function ChannelWorkspace({
     },
     [],
   );
-  useEffect(() => {
-    if (
-      mediaReview &&
-      list.status === "ready" &&
-      list.coverage !== "partial" &&
-      !list.channels.some(
-        (channel) => channel.id === mediaReview.channelId && !channel.archived,
-      )
-    )
-      setMediaReview(undefined);
-  }, [mediaReview, list]);
   const closeThread = () => {
     setReplyRequest(undefined);
     if (showingThread?.navigation && current) select(current.id);
@@ -852,9 +850,10 @@ function ChannelWorkspace({
   const drawer = useChannelPanels(panels, drawerContext, () =>
     setSettings(undefined),
   );
-  const showingPanel =
+  const showingChannelPanel =
     !composingMessage &&
-    (showingSettings || panel || showingThread || companion || drawer.side);
+    (showingSettings || panel || showingThread || drawer.side);
+  const showingPanel = companion || showingChannelPanel;
   const workspace = (
     <div className={`${styles.board} ${showingPanel ? styles.withPanel : ""}`}>
       {current && !current.readOnly && canvasOpen && (
@@ -1075,7 +1074,7 @@ function ChannelWorkspace({
       )}
       {showingPanel && !showingMediaReview && (
         <div className={styles.panelStack}>
-          {showingSettings && (
+          {showingChannelPanel && showingSettings && (
             <ChannelSettingsPanel
               setupTools={
                 current && (
@@ -1141,12 +1140,12 @@ function ChannelWorkspace({
                       !current.readOnly &&
                       current.channelType !== "dm" &&
                       current.channelType !== "session" && (
-                        <ChannelLeaveButton
+                        <ChannelLifecycleActions
                           key={current.id}
                           channelId={current.id}
                           lifecycle={queries.channelLifecycle}
-                          choose={(trigger) =>
-                            handoff.openLifecycle(current, "leave", trigger)
+                          choose={(action, trigger) =>
+                            handoff.openLifecycle(current, action, trigger)
                           }
                         />
                       )}
@@ -1155,6 +1154,7 @@ function ChannelWorkspace({
               }
               key={currentId ?? "channels"}
               channel={current}
+              details={queries.channelDetails}
               close={closeSettings}
             >
               <UnreadOptions session={queries} channelId={current?.id} />
@@ -1204,7 +1204,7 @@ function ChannelWorkspace({
               )}
             </ChannelSettingsPanel>
           )}
-          {showingThread && (
+          {showingChannelPanel && showingThread && (
             <div className={styles.retainedPanel} inert={showingSettings}>
               <ThreadPanel
                 sessionConversation={current?.channelType === "session"}
@@ -1230,7 +1230,7 @@ function ChannelWorkspace({
             </div>
           )}
 
-          {panel && opened && (
+          {showingChannelPanel && panel && opened && (
             <div className={styles.retainedPanel} inert={showingSettings}>
               <PanelCard
                 key="target"
@@ -1242,7 +1242,7 @@ function ChannelWorkspace({
               />
             </div>
           )}
-          {drawer.side && (
+          {showingChannelPanel && drawer.side && (
             <div className={styles.retainedPanel} hidden={showingSettings}>
               {drawer.side}
             </div>

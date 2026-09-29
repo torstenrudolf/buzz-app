@@ -151,7 +151,7 @@ for (const reading of [false, true]) {
       ).toHaveCount(0);
       await expect(
         region.getByText("Loading thread…", { exact: true }),
-      ).toBeVisible();
+      ).toHaveCount(0);
       // The panel is presented even while bounded history is still pending.
       await expect
         .poll(() =>
@@ -179,6 +179,8 @@ for (const reading of [false, true]) {
         .toBe("opened");
       if (reading) {
         expect(await region.evaluate((node) => node.scrollTop)).toBe(position);
+        const jumpToLatest = region.locator("button[data-jump-to-latest]");
+        await expect(jumpToLatest).toHaveAccessibleName("Jump to latest");
       } else {
         await expect
           .poll(() =>
@@ -200,6 +202,33 @@ for (const reading of [false, true]) {
       ).toBeVisible();
       if (reading) {
         expect(await region.evaluate((node) => node.scrollTop)).toBe(position);
+        const jumpToLatest = region.locator("button[data-jump-to-latest]");
+        await expect(jumpToLatest).toHaveAccessibleName("1 new message");
+        await jumpToLatest.focus();
+        await page.keyboard.press("Space");
+        await expect(region).toBeFocused();
+        await expect(
+          region.locator(`[data-message-id="${live.id}"]`),
+        ).toBeInViewport();
+        await expect(jumpToLatest).toHaveCount(0);
+        await region.hover();
+        await page.mouse.wheel(0, -500);
+        await expect
+          .poll(() =>
+            region.evaluate(
+              (node) => node.scrollHeight - node.clientHeight - node.scrollTop,
+            ),
+          )
+          .toBeGreaterThan(80);
+        const nextLive = app.reply(root.id);
+        await expect(jumpToLatest).toHaveAccessibleName("1 new message");
+        await jumpToLatest.focus();
+        await page.keyboard.press("Enter");
+        await expect(region).toBeFocused();
+        await expect(
+          region.locator(`[data-message-id="${nextLive.id}"]`),
+        ).toBeInViewport();
+        await expect(jumpToLatest).toHaveCount(0);
       } else {
         await expect(
           region.locator(`[data-message-id="${live.id}"]`),
@@ -210,7 +239,9 @@ for (const reading of [false, true]) {
       await expect(
         region.getByText("Broadcast descendant", { exact: true }),
       ).toBeInViewport();
-      await expect(region.locator("[data-message-id]")).toHaveCount(125);
+      await expect(region.locator("[data-message-id]")).toHaveCount(
+        reading ? 126 : 125,
+      );
     } finally {
       release();
       await page.unroute(routePattern);

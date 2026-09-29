@@ -30,6 +30,8 @@ export interface AgentView {
   /** Missing preserves existing artwork; empty removes it. */
   picture?: string | null;
   systemPrompt: string;
+  /** Null inherits Agent defaults; imported agents can carry their own choice. */
+  sessionPolicy: "channel" | "thread" | null;
   workspace: string;
   harness: {
     command: string;
@@ -73,8 +75,19 @@ export interface AgentView {
   deployedRemote?: boolean;
   /** Older imports need an explicit snapshot of their legacy team instructions. */
   needsTeamImport?: boolean;
+  /** Absent on older hosts means an existing configured setup. */
+  configured?: boolean;
+}
+export interface ParkedIdentity {
+  pubkey: string;
+  name: string;
+  /** Historical metadata sources, not a credential availability assertion. */
+  sources: ImportSource[];
 }
 export interface ControlSnapshot {
+  localInventoryActions?: boolean;
+  parked?: ParkedIdentity[];
+  inventoryWarnings?: string[];
   agents: AgentView[];
   runtimeAvailable: boolean;
   /** Native executable presence and editing suggestions, not sign-in or execution evidence.
@@ -110,6 +123,7 @@ export interface AgentDefaultSettings {
   provider: string;
   model: string;
   effort: string;
+  sessionPolicy: "channel" | "thread";
   environmentKeys: string[];
 }
 export interface AgentDefaultsEdit
@@ -131,6 +145,7 @@ export interface AgentEdit {
   /** Omitted preserves artwork; empty removes it. */
   picture?: string;
   systemPrompt: string;
+  sessionPolicy: "channel" | "thread" | null;
   workspace: string;
   harness: Omit<AgentView["harness"], "environmentKeys">;
   /** Missing preserves the native value; null removes it; string replaces it. */
@@ -157,8 +172,21 @@ export interface GooseInstallReport {
   output: string;
   error: string | null;
 }
+
+export type CommunityResolution = {
+  pubkey: string;
+  relayUrl: string;
+  owner: string;
+  signature: string;
+};
+export type CloneSettings = Pick<AgentEdit, "name" | "systemPrompt">;
 export interface AgentControlHost {
   readLog?(target: AgentLogTarget): Promise<string>;
+  configureHere?(
+    id: string,
+    resolution: CommunityResolution,
+  ): Promise<ControlSnapshot>;
+  cloneSettings?(source: ImportSource, pubkey: string): Promise<CloneSettings>;
   models?: ModelHost;
   installGoose?(): Promise<GooseInstallReport>;
   installPi?(): Promise<GooseInstallReport>;
@@ -224,6 +252,8 @@ export interface AgentControlState {
 export interface AgentControl {
   /** Sensitive local output. Native custody and exact community are rechecked per read. */
   readLog?(target: AgentLogTarget): Promise<string>;
+  configureHere?: AgentControlHost["configureHere"];
+  cloneSettings?: AgentControlHost["cloneSettings"];
   models?: AgentModels;
   installGoose?(): Promise<GooseInstallReport>;
   installPi?(): Promise<GooseInstallReport>;
@@ -258,6 +288,8 @@ export function agentLaunchBlock(
   state: AgentControlState,
   agent: AgentView,
 ): string | null {
+  if (agent.configured === false)
+    return "Choose Use here before starting this imported identity.";
   if (state.status !== "ready") return "Refresh status before starting.";
   if (state.busy) return "Waiting for the current operation.";
   if (!state.data?.runtimeAvailable)
@@ -673,6 +705,7 @@ export function createAgentControl(
         const agents =
           state.data?.agents.filter(
             (agent) =>
+              agent.configured !== false &&
               pubkeys.includes(agent.pubkey) &&
               relayOrigin(agent.relayUrl) === relayOrigin(relayUrl),
           ) ?? [];
@@ -729,6 +762,35 @@ export function createAgentControl(
           update({ mentionError: `Message sent, but ${failures.join(" ")}` });
       };
     },
+    ...(host?.configureHere
+      ? {
+          configureHere: (id: string, resolution: CommunityResolution) =>
+            run(
+              (native) => {
+                if (!native.configureHere)
+                  throw new Error("Use here is unavailable.");
+                return native.configureHere(id, resolution);
+              },
+              (data) => update({ data }),
+              false,
+              undefined,
+              true,
+            ),
+        }
+      : {}),
+    ...(host?.cloneSettings
+      ? {
+          cloneSettings: (source: ImportSource, pubkey: string) =>
+            run(
+              (native) => {
+                if (!native.cloneSettings)
+                  throw new Error("Clone settings are unavailable.");
+                return native.cloneSettings(source, pubkey);
+              },
+              () => {},
+            ),
+        }
+      : {}),
     previewImport: (source, destination) =>
       run(
         (native) => native.previewImport(source, destination),

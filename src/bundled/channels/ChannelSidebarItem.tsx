@@ -1,6 +1,6 @@
 import { UserStatusDisplay } from "../../features/user-status/StatusDisplay";
 import { memo, useLayoutEffect, useRef, type ReactNode } from "react";
-import { Avatar } from "../../shared/design-system/ui/Avatar";
+import { AgentAvatar } from "../../features/agents/AgentAvatar";
 import {
   ContextMenuRoot,
   ContextMenuTrigger,
@@ -96,7 +96,10 @@ export const ChannelSidebarItem = memo(function ChannelSidebarItem({
           <DmTypingBadge session={session} channelId={channel.id}>
             {channel.participants?.length === 1 ? (
               <span className={styles.dmAvatar} data-dm-identity="">
-                <Avatar
+                <AgentAvatar
+                  session={session}
+                  agentPubkey={peer}
+                  channelId={channel.id}
                   src={
                     profile?.picture
                       ? session.media(profile.picture, "small")

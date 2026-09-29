@@ -1,9 +1,8 @@
 import { MessageTimestamp } from "./MessageTimestamp";
-import { UserStatusDisplay } from "../user-status/StatusDisplay";
 import { useChannelIdentityNames } from "../identity-names/react";
 import { Button } from "../../shared/design-system/ui/Button";
 import { ReplySummary } from "./ReplySummary";
-import { Avatar } from "../../shared/design-system/ui/Avatar";
+import { AgentAvatar } from "../agents/AgentAvatar";
 import { usePresenceStatus } from "../presence/react";
 import { IconButton } from "../../shared/design-system/ui/IconButton";
 import {
@@ -40,11 +39,7 @@ import { MessageReactionControls, MessageReactions } from "./MessageReactions";
 import { MessageManagementItems } from "./MessageManagement";
 import { MessageActionBar } from "./MessageActionBar";
 import { FlagIcon } from "../../shared/design-system/icons";
-import {
-  MenuIcon,
-  MenuItem,
-  MenuSeparator,
-} from "../../shared/design-system/ui/Menu";
+import { MenuIcon, MenuItem } from "../../shared/design-system/ui/Menu";
 import { ToastNotice } from "../../shared/design-system/ui/Toast";
 import { ReportMessageDialog } from "./ReportMessageDialog";
 import { messageCopyLink, messageCopyText } from "./message-copy";
@@ -77,9 +72,9 @@ export type MessageRowProps = {
     | undefined;
   onReply?: ((messageId: string) => void) | undefined;
   quickControls?: ReactNode;
-  branchControl?: ReactNode;
   overflowItems?: ReactNode;
   layout?: "timeline" | "thread" | "continuation";
+  compactAvatar?: boolean;
   mediaMode?: "inline" | "thread";
   mediaSeekTo?: number;
   mediaSeekRequest?: number;
@@ -109,10 +104,10 @@ export const MessageRow = memo(function MessageRow({
   onOpenThread,
   onReply,
   quickControls,
-  branchControl,
   overflowItems,
   participantProfiles,
   layout = "timeline",
+  compactAvatar = false,
   mediaMode = "inline",
   mediaSeekTo,
   mediaSeekRequest,
@@ -151,14 +146,20 @@ export const MessageRow = memo(function MessageRow({
   const picture = profile?.picture
     ? media(profile.picture, "small")
     : undefined;
-  const target = profileTarget(row.authorId);
+  const target = profileTarget(row.authorId, {
+    agent: !!(row.agentEnvelope || agentPubkeys?.has(row.authorId)),
+  });
   const clickable = target && canOpenLink?.(target);
   const avatarShape =
     row.agentEnvelope || agentPubkeys?.has(row.authorId)
       ? "squircle"
       : "circle";
-  const presence = usePresenceStatus(session?.presence, row.authorId);
+  const presence = usePresenceStatus(
+    avatarShape === "squircle" ? session?.presence : undefined,
+    row.authorId,
+  );
   const presenceId = useId();
+  const thinkingId = useId();
   const timeReply = row.diff ? undefined : parseMediaTimeReply(row.content);
   const displayRow = timeReply ? { ...row, content: timeReply.content } : row;
   const emojiOnly = usesLargeEmojiPresentation(displayRow.content, row.emoji);
@@ -195,7 +196,7 @@ export const MessageRow = memo(function MessageRow({
       <MenuIcon>
         <FlagIcon />
       </MenuIcon>
-      Report message
+      Report
     </MenuItem>
   );
   // Keep mixed attachments in sender order; only adjacent images share a strip.
@@ -252,6 +253,7 @@ export const MessageRow = memo(function MessageRow({
         <div className={styles.day}>
           <span>
             {new Date(row.createdAt * 1000).toLocaleDateString(undefined, {
+              year: "numeric",
               weekday: "long",
               month: "long",
               day: "numeric",
@@ -269,18 +271,29 @@ export const MessageRow = memo(function MessageRow({
             size={layout === "timeline" ? "default" : "sm"}
             shape="round"
             aria-label={`View ${name} profile`}
-            aria-describedby={presence === "unknown" ? undefined : presenceId}
+            aria-describedby={
+              [
+                presence !== "unknown" && presenceId,
+                avatarShape === "squircle" && thinkingId,
+              ]
+                .filter(Boolean)
+                .join(" ") || undefined
+            }
             onClick={(event) => {
               event.currentTarget.focus();
               onOpenLink(target);
             }}
             icon={
               <>
-                <Avatar
+                <AgentAvatar
+                  session={session}
+                  agentPubkey={row.authorId}
+                  channelId={row.channelId}
                   src={picture}
                   alt=""
+                  thinkingDescriptionId={thinkingId}
                   fallback={name}
-                  size="fill"
+                  size={compactAvatar ? "small" : "fill"}
                   shape={avatarShape}
                   statusBadge={presence === "unknown" ? undefined : presence}
                 />
@@ -293,95 +306,33 @@ export const MessageRow = memo(function MessageRow({
             }
           />
         ) : (
-          <Avatar
-            src={picture}
-            alt={
-              presence === "unknown"
-                ? ""
-                : avatarShape === "squircle"
-                  ? "Agent"
-                  : `${name} avatar`
-            }
-            fallback={name}
-            size={layout === "timeline" ? "large" : "default"}
-            shape={avatarShape}
-            statusBadge={presence === "unknown" ? undefined : presence}
-          />
+          <span className={compactAvatar ? styles.nestedAvatar : "contents"}>
+            <AgentAvatar
+              session={session}
+              agentPubkey={row.authorId}
+              channelId={row.channelId}
+              src={picture}
+              alt={
+                presence === "unknown"
+                  ? ""
+                  : avatarShape === "squircle"
+                    ? "Agent"
+                    : `${name} avatar`
+              }
+              fallback={name}
+              size={
+                compactAvatar
+                  ? "small"
+                  : layout === "timeline"
+                    ? "large"
+                    : "default"
+              }
+              shape={avatarShape}
+              statusBadge={presence === "unknown" ? undefined : presence}
+            />
+          </span>
         )}
         <div className={styles.messageBody}>
-          {!row.membership && (
-            <MessageActionBar
-              branchControl={branchControl}
-              menuTriggerRef={menuTrigger}
-              messageId={row.id}
-              onReply={
-                (onReply ? () => onReply(row.id) : undefined) ??
-                (onOpenThread
-                  ? () =>
-                      onOpenThread(
-                        row.threadRootId ?? row.id,
-                        row.threadRootId ?? row.id,
-                        "reply",
-                      )
-                  : undefined)
-              }
-              replyDisabled={
-                !!(
-                  row.delivery && !["accepted", "seen"].includes(row.delivery)
-                ) ||
-                !!channelList.channels.find(
-                  (channel) => channel.id === row.channelId,
-                )?.archived ||
-                (!!session?.channels.get &&
-                  !channelList.channels.some(
-                    (channel) =>
-                      channel.id === row.channelId && !channel.readOnly,
-                  ))
-              }
-              link={messageCopyLink(row, scope)}
-              copyText={() =>
-                messageCopyText(row, directory.profiles, directory.agents)
-              }
-              quickControls={
-                quickControls ??
-                (canReact && session && scope && extensions ? (
-                  <MessageReactionControls
-                    row={row}
-                    session={session}
-                    scope={scope}
-                    tools={extensions.tools}
-                    inline={extensions.inline}
-                    disabled={
-                      !!row.delivery &&
-                      !["accepted", "seen"].includes(row.delivery)
-                    }
-                  />
-                ) : undefined)
-              }
-              overflowItems={
-                <>
-                  {overflowItems != null ? (
-                    <>
-                      <MenuSeparator />
-                      {overflowItems}
-                    </>
-                  ) : session ? (
-                    <MessageManagementItems
-                      row={row}
-                      session={session}
-                      separated
-                    />
-                  ) : undefined}
-                  {reportItem && (
-                    <>
-                      <MenuSeparator />
-                      {reportItem}
-                    </>
-                  )}
-                </>
-              }
-            />
-          )}
           {report && reporting === "open" && (
             <ReportMessageDialog
               report={(type, note) => report(row.id, type, note)}
@@ -399,23 +350,74 @@ export const MessageRow = memo(function MessageRow({
               onDismiss={() => setReporting(undefined)}
             />
           )}
-          <div
-            className={layout === "continuation" ? "sr-only" : styles.byline}
-          >
-            <span className={styles.author}>
-              <strong>{name}</strong>
-              {session && (
-                <UserStatusDisplay
-                  session={session}
-                  userId={row.authorId}
-                  compact
-                  focusable={false}
-                />
-              )}
-            </span>
-            {layout !== "continuation" && (
-              <MessageTimestamp createdAt={row.createdAt} />
+          <div className={styles.messageHeader}>
+            {!row.membership && (
+              <MessageActionBar
+                menuTriggerRef={menuTrigger}
+                messageId={row.id}
+                onReply={
+                  (onReply ? () => onReply(row.id) : undefined) ??
+                  (onOpenThread
+                    ? () =>
+                        onOpenThread(
+                          row.threadRootId ?? row.id,
+                          row.threadRootId ?? row.id,
+                          "reply",
+                        )
+                    : undefined)
+                }
+                replyDisabled={
+                  !!(
+                    row.delivery && !["accepted", "seen"].includes(row.delivery)
+                  ) ||
+                  !!channelList.channels.find(
+                    (channel) => channel.id === row.channelId,
+                  )?.archived ||
+                  (!!session?.channels.get &&
+                    !channelList.channels.some(
+                      (channel) =>
+                        channel.id === row.channelId && !channel.readOnly,
+                    ))
+                }
+                link={messageCopyLink(row, scope)}
+                copyText={() =>
+                  messageCopyText(row, directory.profiles, directory.agents)
+                }
+                quickControls={
+                  quickControls ??
+                  (canReact && session && scope && extensions ? (
+                    <MessageReactionControls
+                      row={row}
+                      session={session}
+                      scope={scope}
+                      tools={extensions.tools}
+                      inline={extensions.inline}
+                      disabled={
+                        !!row.delivery &&
+                        !["accepted", "seen"].includes(row.delivery)
+                      }
+                    />
+                  ) : undefined)
+                }
+                overflowItems={
+                  <>
+                    {overflowItems ??
+                      (session ? (
+                        <MessageManagementItems row={row} session={session} />
+                      ) : undefined)}
+                    {reportItem}
+                  </>
+                }
+              />
             )}
+            <div
+              className={layout === "continuation" ? "sr-only" : styles.byline}
+            >
+              <strong className={styles.author}>{name}</strong>
+              {layout !== "continuation" && (
+                <MessageTimestamp createdAt={row.createdAt} />
+              )}
+            </div>
           </div>
           {timeReply && (
             <span className={styles.mediaTimeLink}>

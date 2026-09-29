@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
+import { stubAvatarBrowserApis } from "../../features/agents/avatar-testing";
+stubAvatarBrowserApis();
 import { StrictMode, useState } from "react";
 import { createHash } from "node:crypto";
 import { schnorr } from "@noble/curves/secp256k1.js";

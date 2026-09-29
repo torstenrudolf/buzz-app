@@ -217,9 +217,9 @@ test("foreground send and cold channel entry remain available during a profile s
   }
 });
 
-test.describe("human message bylines show known presence", () => {
-  test.use({ threadUnread: true, historyCounts: { alpha: 20, beta: 20 } });
-  test("timeline and thread bylines demand presence alongside an explicit profile", async ({
+test.describe("human message bylines omit presence", () => {
+  test.use({ threadUnread: true, historyCounts: { alpha: 2, beta: 1 } });
+  test("timeline and thread omit badges while the profile retains presence", async ({
     page,
     app,
   }) => {
@@ -245,28 +245,23 @@ test.describe("human message bylines show known presence", () => {
         .getByRole("button", { name: "View Alice Fixture profile" })
         .first()
         .locator(".buzz-avatar-status"),
-    ).toHaveAttribute("data-status", "online");
+    ).not.toHaveAttribute("data-status");
     await expect(
       thread
         .getByRole("button", { name: "View Alice Fixture profile" })
         .first()
         .locator(".buzz-avatar-status"),
-    ).toHaveAttribute("data-status", "online");
-    // Opening a profile replaces the thread pane. Verify its live badge first.
-    app.presence("away");
-    for (const surface of [timeline, thread]) {
-      await expect(
-        surface
-          .getByRole("button", { name: "View Alice Fixture profile" })
-          .first()
-          .locator(".buzz-avatar-status"),
-      ).toHaveAttribute("data-status", "away");
-    }
+    ).not.toHaveAttribute("data-status");
     await thread
       .getByRole("button", { name: "View Alice Fixture profile", exact: true })
       .first()
       .click();
     const profile = page.getByRole("region", { name: "Profile details" });
+    // Human bylines do not demand presence; opening the profile starts that read.
+    await expect(
+      profile.getByRole("img", { name: "Presence: Active" }),
+    ).toBeVisible();
+    app.presence("away");
     await expect(
       profile.getByRole("img", { name: "Presence: Away" }),
     ).toBeVisible();
@@ -551,7 +546,7 @@ test("avatar choices publish through the existing socket and persist across relo
     await expect(
       avatar.getByRole("img", { name: "Your status: Online" }),
     ).toBeVisible();
-    await expect(ownBadge).toHaveAttribute("data-status", "online");
+    await expect(ownBadge).not.toHaveAttribute("data-status");
     await expect(
       page.getByRole("menuitemradio", { name: "Online", exact: true }),
     ).toBeChecked();
@@ -581,15 +576,13 @@ test("avatar choices publish through the existing socket and persist across relo
     presenceAttempts: attempts,
     note: "includes the explicit pending-UI assertion gate and browser automation",
   });
-  await expect(badge).toHaveCSS("background-color", "rgb(171, 100, 0)");
-  await expect(ownBadge).toHaveAttribute("data-status", "away");
+  await expect(badge).toHaveCSS("background-color", "rgb(255, 186, 24)");
+  await expect(ownBadge).not.toHaveAttribute("data-status");
   await expect
     .poll(() =>
-      badge.evaluate(
-        (element) => getComputedStyle(element, "::after").backgroundColor,
-      ),
+      badge.evaluate((element) => getComputedStyle(element, "::after").content),
     )
-    .toBe("rgb(255, 186, 24)");
+    .toBe("none");
   await expect(
     page.getByRole("button", { name: "Availability: Away", exact: true }),
   ).toHaveCSS("color", "rgb(79, 52, 34)");
@@ -612,7 +605,7 @@ test("avatar choices publish through the existing socket and persist across relo
     .getByRole("menuitemradio", { name: "Offline", exact: true })
     .click();
   await expect.poll(() => published("offline")).toBeGreaterThan(0);
-  await expect(ownBadge).toHaveAttribute("data-status", "offline");
+  await expect(ownBadge).not.toHaveAttribute("data-status");
   await page.reload();
   await expect(
     avatar.getByRole("img", { name: "Your status: Offline" }),

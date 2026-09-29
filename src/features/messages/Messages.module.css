@@ -65,7 +65,7 @@
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
   letter-spacing: var(--text-caption--letter-spacing);
-  margin: var(--space-2) 0 var(--space-8);
+  margin: var(--space-3) 0;
 }
 .day::before,
 .day::after {
@@ -79,18 +79,32 @@
   container: message-row / inline-size;
   display: flex;
   gap: var(--space-3);
-  padding: var(--space-2) 0 var(--space-section-gap);
+  /* Match continuation bottom padding so regrouping preserves reading anchors. */
+  padding: calc(var(--space-3) + var(--space-half)) 0 var(--space-half);
 }
 .message[data-layout="thread"],
 .message[data-layout="continuation"] {
   gap: var(--space-2);
-  padding-block: var(--space-1);
-  min-block-size: var(--size-control);
+}
+.message[data-layout="continuation"] {
+  padding-block: var(--space-half);
+}
+/* Timeline continuations keep the full-size avatar column's text alignment. */
+.feed .message[data-layout="continuation"] {
+  gap: var(--space-3);
+}
+.nestedAvatar {
+  display: grid;
+  place-items: center;
+  flex: 0 0 var(--size-control-sm);
+  height: var(--size-control-sm);
 }
 .messageGutter {
   flex: 0 0 var(--size-control-sm);
 }
 .messageBody {
+  display: flex;
+  flex-direction: column;
   flex: 1;
   min-width: 0;
 }
@@ -99,9 +113,9 @@
   flex-wrap: wrap;
   align-items: baseline;
   gap: var(--space-2);
-  font-size: var(--text-label-sm);
-  line-height: var(--text-label-sm--line-height);
-  letter-spacing: var(--text-label-sm--letter-spacing);
+  font-size: var(--text-body-sm);
+  line-height: var(--text-body-sm--line-height);
+  letter-spacing: var(--text-body-sm--letter-spacing);
 }
 .byline time {
   color: var(--text-subtle);
@@ -110,11 +124,8 @@
   letter-spacing: var(--text-caption--letter-spacing);
 }
 .author {
-  --user-status-emoji-size: 14px;
-  display: inline-flex;
-  align-items: baseline;
+  font-weight: var(--type-weight-medium);
   min-width: 0;
-  gap: var(--space-1);
 }
 .text {
   margin: var(--space-1) 0 0;
@@ -365,7 +376,7 @@
   width: 360px;
   max-width: 100%;
   aspect-ratio: 360 / 320;
-  margin-top: var(--space-2);
+  margin-block: var(--space-1);
   border-radius: var(--media-preview-radius);
 }
 /* Clip the pixels, not the focusable link's outside keyboard outline. */
@@ -528,8 +539,6 @@ html[data-keyboard-navigation] .attachmentImage:focus-visible {
   margin-top: var(--space-1h);
 }
 .day span {
-  border: 1px solid var(--border-standard);
-  border-radius: var(--radius-pill);
   padding: var(--space-1h) var(--space-3);
 }
 .threadUnread {
@@ -540,6 +549,12 @@ html[data-keyboard-navigation] .attachmentImage:focus-visible {
   background: var(--text-standard);
 }
 .messageBody [data-thread-summary] {
+  align-self: flex-start;
+  margin-inline-start: calc(-1 * var(--space-1));
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
+  font-weight: var(--type-weight-regular);
   border-radius: var(--radius-pill);
   margin-top: var(--space-1);
   padding: var(--space-1);
@@ -552,6 +567,14 @@ html[data-keyboard-navigation] .attachmentImage:focus-visible {
   padding: 0 var(--space-panel-inset);
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--text) 20%, transparent) transparent;
+}
+.threadHistoryPageStatus {
+  padding: var(--space-2);
+  color: var(--text-subtle);
+  font-size: var(--text-caption);
+}
+.threadHistoryPageStatus p {
+  margin: 0;
 }
 .threadHistory ol {
   list-style: none;
@@ -804,6 +827,7 @@ html[data-keyboard-navigation] .audioSeek:focus-visible {
   max-width: 100%;
   aspect-ratio: var(--media-ratio, 16 / 9);
   overflow: hidden;
+  margin-block: var(--space-1);
   padding: 0;
   border: 0;
   border-radius: var(--media-preview-radius);
@@ -1071,12 +1095,6 @@ button.mediaPreview {
   }
 }
 
-.mediaCommentAction {
-  align-self: flex-start;
-  margin: 0 0 var(--space-3) var(--space-16);
-  font-variant-numeric: tabular-nums;
-}
-
 .imageReviewStage {
   position: relative;
   display: block;
@@ -1245,6 +1263,10 @@ html[data-keyboard-navigation] .imageReviewToolbar :focus-visible {
 }
 .plainText {
   white-space: pre-wrap;
+}
+.text :where(p, li),
+.plainText {
+  text-wrap-style: pretty;
 }
 .text p {
   line-height: inherit;
@@ -1504,6 +1526,9 @@ html[data-keyboard-navigation] .imageReviewToolbar :focus-visible {
 
 .messageActions {
   @apply popover-surface;
+  order: 1;
+  flex-shrink: 0;
+  align-self: flex-end;
   border-radius: var(--radius-pill);
   display: flex;
   align-items: center;
@@ -1532,30 +1557,36 @@ html[data-keyboard-navigation] .imageReviewToolbar :focus-visible {
     z-index: 1;
   }
 }
-@media (hover: hover) and (pointer: fine) and (min-width: 640px) {
+@media (hover: hover) and (pointer: fine) {
   .messageActions {
     position: absolute;
-    inset-inline-end: 0;
-    top: 0;
-    opacity: 0;
-    pointer-events: none;
-  }
-  /* Reserve the controls' natural height in threads even while hidden, so
-     showing actions neither covers text nor moves neighboring click targets. */
-  .message:is([data-layout="thread"], [data-layout="continuation"])
-  .messageBody {
-    display: flex;
-    flex-direction: column;
-  }
-  .message:is([data-layout="thread"], [data-layout="continuation"])
-    .messageActions {
-    position: static;
-    order: 1;
     flex-wrap: nowrap;
     max-width: none;
-    flex-shrink: 0;
-    align-self: flex-end;
+    inset-inline-end: 0;
+    top: calc(100% + var(--space-1));
+    translate: 0 -100%;
+    z-index: 2;
+    opacity: 0;
+    pointer-events: none;
     margin-inline-start: 0;
+  }
+  /* Anchor to the real author line, including when its metadata wraps. */
+  .messageHeader {
+    position: relative;
+  }
+  /* A continuation has no visible author line; end the bar at its header
+     instead of deriving clearance from row padding or half the bar's height. */
+  .message[data-layout="continuation"] .messageActions {
+    top: 0;
+  }
+  /* Keep pointer travel to the lifted bar inside the hovered row without
+     changing spacing or intercepting the preceding row while at rest. */
+  .message:hover::before {
+    content: "";
+    position: absolute;
+    bottom: 100%;
+    inset-inline: 0;
+    height: var(--space-2);
   }
   .message:hover .messageActions,
   .message:focus-within .messageActions,
@@ -1570,11 +1601,10 @@ html[data-keyboard-navigation] .imageReviewToolbar :focus-visible {
   position: relative;
   --reply-spine-start: calc(var(--size-control-sm) + var(--space-2));
   --reply-indent: var(--size-control);
-  --reply-spine-offset: var(--space-4);
-  --reply-guide: var(--border-standard);
+  --reply-spine-offset: calc(var(--size-control-sm) / 2);
 }
 .replyBranchSummary {
-  margin-inline-start: var(--size-control);
+  margin-inline-start: calc(var(--size-control-sm) + var(--space-2));
 }
 /* Summary metadata can reflow as whole avatar/count groups at narrow widths. */
 .replyBranchSummary > button {
@@ -1589,29 +1619,29 @@ html[data-keyboard-navigation] .imageReviewToolbar :focus-visible {
 .replyItem {
   position: relative;
 }
+.replyBranchPanel > ol > .replyItem::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: calc(var(--reply-spine-offset) - var(--reply-indent));
+  inset-block-start: 0;
+  inline-size: calc(
+    var(--reply-indent) -
+    var(--reply-spine-offset) -
+    var(--space-1)
+  );
+  block-size: calc(var(--space-1) + var(--size-control-sm) / 2);
+  border-inline-start: 1px solid var(--border-standard);
+  border-block-end: 1px solid var(--border-standard);
+  border-end-start-radius: var(--radius-control);
+  pointer-events: none;
+}
 .replyBranchPanel > ol > .replyItem:not(:last-child)::after {
   content: "";
   position: absolute;
   inset-inline-start: calc(var(--reply-spine-offset) - var(--reply-indent));
   inset-block: 0;
-  border-inline-start: 1px solid var(--reply-guide);
+  border-inline-start: 1px solid var(--border-standard);
   pointer-events: none;
-}
-.replyBranchRail {
-  position: absolute;
-  inset-block: var(--reply-spine-start) 0;
-  inset-inline-start: calc(var(--reply-spine-offset) - var(--space-3));
-  width: var(--space-6);
-  padding: 0;
-  border: 0;
-  background: transparent;
-  cursor: pointer;
-}
-.replyBranch:has(> .replyBranchPanel > .replyBranchRail:hover) {
-  --reply-guide: var(--border-prominent);
-}
-.replyBranch:has(> .replyBranchPanel > .replyBranchRail:active) {
-  --reply-guide: var(--border-focus);
 }
 .replyContext {
   display: flex;
@@ -1640,22 +1670,12 @@ html[data-keyboard-navigation] .imageReviewToolbar :focus-visible {
   margin-top: 0;
 }
 
-@media (hover: hover) and (pointer: fine) {
-  .replyBranch[data-open="true"] > .replyBranchSummary {
-    display: none;
-  }
-}
-html[data-keyboard-navigation]
-  .replyBranch:has(> .replyBranchPanel > .replyBranchRail:focus-visible) {
-  --reply-guide: var(--border-prominent);
-}
-html[data-keyboard-navigation] .replyBranchRail:focus-visible {
-  outline: 2px solid var(--border-focus);
-  outline-offset: 2px;
-  border-radius: var(--radius-row);
-}
 .replyBranch[data-layout="continuation"] {
-  --reply-spine-start: var(--space-1);
+  --reply-spine-start: calc(
+    var(--space-1) +
+    var(--text-caption) *
+    var(--text-caption--line-height)
+  );
 }
 .replyBranchMessage {
   position: relative;
@@ -1665,21 +1685,21 @@ html[data-keyboard-navigation] .replyBranchRail:focus-visible {
   position: absolute;
   inset-inline-start: var(--reply-spine-offset);
   inset-block: var(--reply-spine-start) 0;
-  border-inline-start: 1px solid var(--reply-guide);
+  border-inline-start: 1px solid var(--border-standard);
   pointer-events: none;
 }
 
-/* Capping stops horizontal growth, not the branch's visible/clickable spine. */
+/* Bound visual indentation without limiting reply ancestry. */
 .replyBranch[data-depth="6"] {
   --reply-indent: 0px;
-  --reply-spine-offset: calc(var(--space-4) - var(--size-control));
+  --reply-spine-offset: calc(0px - var(--space-3));
   --reply-spine-start: 0px;
 }
 @container messages (max-width: 360px) {
   .replyBranch[data-depth="3"],
   .replyBranch[data-depth="3"] .replyBranch {
     --reply-indent: 0px;
-    --reply-spine-offset: calc(var(--space-4) - var(--size-control));
+    --reply-spine-offset: calc(0px - var(--space-3));
     --reply-spine-start: 0px;
   }
 }
@@ -1687,31 +1707,15 @@ html[data-keyboard-navigation] .replyBranchRail:focus-visible {
   .replyBranch[data-depth="4"],
   .replyBranch[data-depth="4"] .replyBranch {
     --reply-indent: 0px;
-    --reply-spine-offset: calc(var(--space-4) - var(--size-control));
+    --reply-spine-offset: calc(0px - var(--space-3));
     --reply-spine-start: 0px;
-  }
-}
-.replyBranchSummary {
-  position: relative;
-}
-.replyBranch[data-open="true"] > .replyBranchSummary::before {
-  content: "";
-  position: absolute;
-  inset-inline-start: calc(var(--reply-spine-offset) - var(--size-control));
-  inset-block: 0;
-  border-inline-start: 1px solid var(--reply-guide);
-  pointer-events: none;
-}
-@media (hover: none), (pointer: coarse) {
-  .replyBranchRail {
-    display: none;
   }
 }
 
 /* Continuations retain a readable clock without repeating the author header. */
 .messageGutter {
   display: flex;
-  justify-content: flex-end;
+  justify-content: center;
   align-items: flex-start;
 }
 .continuationTime {
@@ -1720,7 +1724,7 @@ html[data-keyboard-navigation] .replyBranchRail:focus-visible {
   background: var(--surface-panel);
   color: var(--text-subtle);
   font-size: var(--text-caption);
-  line-height: var(--text-caption--line-height);
+  line-height: calc(var(--text-body-sm) * var(--text-body-sm--line-height));
   letter-spacing: var(--text-caption--letter-spacing);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -1740,37 +1744,6 @@ html[data-keyboard-navigation] .replyBranchRail:focus-visible {
     display: none;
   }
 }
-.replyBranchRowControl {
-  display: none;
-}
-@media (hover: hover) and (pointer: fine) {
-  .replyBranch[data-depth="6"] > .replyBranchPanel > .replyBranchRail {
-    display: none;
-  }
-  .replyBranch[data-depth="6"] > .replyBranchMessage .replyBranchRowControl {
-    display: block;
-  }
-  @container messages (max-width: 360px) {
-    .replyBranch[data-depth="3"] > .replyBranchPanel > .replyBranchRail,
-    .replyBranch[data-depth="3"] .replyBranchRail {
-      display: none;
-    }
-    .replyBranch[data-depth="3"] > .replyBranchMessage .replyBranchRowControl,
-    .replyBranch[data-depth="3"] .replyBranchRowControl {
-      display: block;
-    }
-  }
-  @container messages (min-width: 361px) and (max-width: 480px) {
-    .replyBranch[data-depth="4"] > .replyBranchPanel > .replyBranchRail,
-    .replyBranch[data-depth="4"] .replyBranchRail {
-      display: none;
-    }
-    .replyBranch[data-depth="4"] > .replyBranchMessage .replyBranchRowControl,
-    .replyBranch[data-depth="4"] .replyBranchRowControl {
-      display: block;
-    }
-  }
-}
 /* A persistent sidebar can leave less than one indent of spare reading space. */
 @container messages (max-width: 320px) {
   .threadHistory {
@@ -1779,26 +1752,8 @@ html[data-keyboard-navigation] .replyBranchRail:focus-visible {
   .replyBranch[data-depth="0"],
   .replyBranch[data-depth="0"] .replyBranch {
     --reply-indent: 0px;
-    --reply-spine-offset: calc(var(--space-4) - var(--size-control));
+    --reply-spine-offset: calc(0px - var(--space-3));
     --reply-spine-start: 0px;
-  }
-  @media (hover: hover) and (pointer: fine) {
-    .replyBranch[data-depth="0"] .replyBranchRail {
-      display: none;
-    }
-    .replyBranch[data-depth="0"] .replyBranchRowControl {
-      display: block;
-    }
-  }
-}
-.replyBranch:has(> .replyBranchMessage .replyBranchRowControl:hover),
-.replyBranch:has(> .replyBranchMessage .replyBranchRowControl:focus-within) {
-  --reply-guide: var(--border-prominent);
-}
-
-@container message-row (max-width: 260px) {
-  .copyLinkShortcut {
-    display: none;
   }
 }
 
@@ -2229,4 +2184,24 @@ html[data-keyboard-navigation] .rawDiff:focus-visible {
 .imageReviewStage:focus,
 .mediaReviewViewer:focus {
   outline: none;
+}
+
+.feed .message[data-layout="continuation"] .messageGutter {
+  flex-basis: var(--size-control);
+}
+.text pre {
+  text-wrap-style: auto;
+}
+
+.jumpToLatest {
+  position: sticky;
+  z-index: 2;
+  top: calc(100% - var(--size-control) - var(--space-2));
+  height: 0;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+button[data-jump-to-latest] {
+  pointer-events: auto;
 }

@@ -37,6 +37,7 @@ export type ReadFilter = Readonly<{
   search_mode?: "prefix" | "fulltext";
   page?: number;
   feed_types?: readonly string[];
+  thread_window?: boolean;
   depth_limit?: number;
   thread_cursor?: number;
   thread_cursor_id?: string;

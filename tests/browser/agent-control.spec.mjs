@@ -11,7 +11,10 @@ async function closeEditor(page) {
 }
 async function openImport(panel) {
   await panel
-    .getByRole("button", { name: "Not imported from old Buzz", exact: true })
+    .getByRole("button", {
+      name: "Import from another installation",
+      exact: true,
+    })
     .click();
   await expect(
     panel.getByRole("button", { name: "Import Fixture agent" }),
@@ -194,8 +197,22 @@ test("local controls preserve drafts, confirm operations and distinguish disable
       ),
     ).toEqual([]);
     await panel.getByRole("button", { name: "Import Fixture agent" }).click();
-    // Only the two managed identities belong here, not the library template.
-    await expect(panel.getByRole("article")).toHaveCount(2);
+    // Only the two managed identities have controls; the template stays read-only.
+    await expect(
+      panel.getByRole("article").filter({
+        has: page.getByRole("button", { name: /^Actions for / }),
+      }),
+    ).toHaveCount(2);
+    await expect(
+      panel
+        .getByRole("region", { name: "Library identities", exact: true })
+        .getByRole("article"),
+    ).toHaveCount(0);
+    await expect(
+      panel
+        .getByRole("region", { name: "Profiles without identities" })
+        .getByRole("article", { name: "Agent Library only", exact: true }),
+    ).toBeVisible();
     expect(
       await page.evaluate(() =>
         window.agentControlFixture.data.agents.every((a) => !a.enabled),
@@ -305,6 +322,10 @@ for (const previouslyStopped of [false, true]) {
   test(`unreadable status allows only explicit Stop from a retained ${previouslyStopped ? "stopped" : "running"} snapshot`, async ({
     page,
   }) => {
+    // Own the five-second status poll so it cannot replace the operation error
+    // before assertions observe it on slower runners.
+    const now = new Date("2026-01-01T00:00:00Z");
+    await page.clock.install({ time: now });
     const server = await createServer({
       ...config,
       configFile: false,
@@ -313,6 +334,9 @@ for (const previouslyStopped of [false, true]) {
     });
     await server.listen();
     try {
+      // Install before the five-second status poll exists; paused below at a
+      // fixed instant beyond this test's timeout, never runner "now".
+      await page.clock.install({ time: new Date("2026-01-01T00:00:00Z") });
       await page.goto(
         `http://127.0.0.1:${server.httpServer.address().port}/tests/fixtures/agent-control.html`,
       );
@@ -333,6 +357,7 @@ for (const previouslyStopped of [false, true]) {
         .fill("wss://chosen.example");
       await panel.getByRole("button", { name: "Load agents" }).click();
       await openEditor(page);
+      await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1000));
       await page.evaluate(() => {
         const fixture = window.agentControlFixture;
         const { snapshot, action } = fixture.host;
@@ -378,6 +403,9 @@ for (const previouslyStopped of [false, true]) {
           (call) => call.action !== "snapshot",
         ),
       );
+      // From here only explicit actions may read or write: a poll tick would
+      // replace the failed Stop's guidance, or recover before the explicit retry.
+      await page.clock.pauseAt(new Date("2026-01-01T01:00:00Z"));
       await stop.click();
       await expect(page.getByRole("alert")).toContainText(
         "could not persist disabled settings",
@@ -424,6 +452,8 @@ for (const previouslyStopped of [false, true]) {
         ...before,
         { action: "stop", payload: { id: "fixture-agent" } },
       ]);
+      await page.clock.runFor(5000);
+      await expect(page.getByRole("alert")).toContainText("Could not refresh");
       // Repairing the host does not implicitly retry. A second explicit Stop can recover.
       await page.evaluate(() => window.agentControlFixture.restoreStore());
       await stop.click();

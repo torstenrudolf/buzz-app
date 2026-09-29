@@ -85,7 +85,7 @@ export function ProfileInstances({
           </Button>
         </div>
       ) : !instances.length ? (
-        <p>No managed instance for this identity in this community.</p>
+        <p>Not managed on this device.</p>
       ) : (
         <details className={styles.instancesDisclosure}>
           <summary>

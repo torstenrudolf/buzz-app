@@ -7,7 +7,7 @@ import type { SidebarPreferences } from "../../features/relay/sidebar-preference
 import {
   act,
   cleanup,
-  render,
+  render as rtlRender,
   screen,
   waitFor,
   within,
@@ -48,6 +48,9 @@ import { SaveAsTemplate } from "./TemplateSettings";
 import { MentionPicker } from "../mentions/MentionPicker";
 import { MentionCompletion } from "../mentions/MentionCompletion";
 import type { CompletionResult } from "../../features/conversation/contracts";
+
+const render = (ui: Parameters<typeof rtlRender>[0]) =>
+  rtlRender(ui, { wrapper: ToastProvider });
 
 beforeEach(() => {
   localStorage.clear();
@@ -515,7 +518,7 @@ it("copies a complete managed lineup without an unused legacy warning", async ()
     );
     expect(
       await screen.findByRole("checkbox", {
-        name: `Calvin ${formatPublicKey(test.fixture.agent.pubkey)}`,
+        name: `Calvin Agent · ${formatPublicKey(test.fixture.agent.pubkey)}`,
       }),
     ).toBeChecked();
     expect(
@@ -693,7 +696,7 @@ it("copies the saved Canvas and eligible member keys without silently creating a
     ).toHaveValue("# Saved plan");
     expect(
       screen.getByRole("checkbox", {
-        name: `Calvin ${formatPublicKey(test.fixture.agent.pubkey)}`,
+        name: `Calvin Agent · ${formatPublicKey(test.fixture.agent.pubkey)}`,
       }),
     ).toBeChecked();
     expect(
@@ -919,18 +922,23 @@ it("shows an avatar, searchable npub and removable unavailable keys without rend
     />,
   );
   const row = screen
-    .getByRole("checkbox", { name: `Calvin ${formatPublicKey(key)}` })
+    .getByRole("checkbox", { name: `Calvin Agent · ${formatPublicKey(key)}` })
     .closest("label");
   assert.exists(row);
   expect(row.querySelector("img")).toHaveAttribute("src", avatar);
-  expect(screen.getByTitle(npubEncode(key))).toHaveTextContent(
-    formatPublicKey(key) ?? "",
-  );
+  expect(row).toHaveTextContent(formatPublicKey(key) ?? "");
+  const user = userEvent.setup();
+  await user.hover(row);
+  const preview = await screen.findByRole("dialog", {
+    name: "Calvin identity",
+  });
+  expect(preview).toHaveTextContent(npubEncode(key));
+  await user.unhover(row);
   expect(document.body.textContent).not.toContain(key);
   expect(document.body.textContent).not.toContain(missing);
   await userEvent.click(
     screen.getByRole("checkbox", {
-      name: `Unavailable agent ${formatPublicKey(missing)}`,
+      name: `Unavailable agent Agent · ${formatPublicKey(missing)}`,
     }),
   );
   expect(change).toHaveBeenCalledWith([]);
@@ -1450,7 +1458,7 @@ it("settings offers only the managed namesake and saves its exact key; creation 
       await screen.findByRole("button", { name: "Save as template…" }),
     );
     const checkbox = await screen.findByRole("checkbox", {
-      name: `Calvin ${formatPublicKey(test.fixture.agent.pubkey)}`,
+      name: `Calvin Agent · ${formatPublicKey(test.fixture.agent.pubkey)}`,
     });
     expect(screen.getAllByRole("checkbox")).toHaveLength(1);
     expect(checkbox).toBeChecked();

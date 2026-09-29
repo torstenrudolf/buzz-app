@@ -1,7 +1,7 @@
 import { test, expect } from "./fixture.mjs";
 import { open } from "./timeline.mjs";
 
-test.use({ historyCounts: { alpha: 20, beta: 0 } });
+test.use({ historyCounts: { alpha: 1, beta: 0 } });
 for (const mode of ["light", "dark"]) {
   test(`Profiles uses shared styles and host keyboard focus in ${mode} mode`, async ({
     page,

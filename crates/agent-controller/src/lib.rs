@@ -2,7 +2,9 @@
 //! No legacy desktop dependency, implicit identity creation, or credential projection.
 mod agent_defaults;
 mod bundle;
+mod community;
 mod config;
+pub use community::CommunityResolution;
 pub mod connection;
 mod create;
 mod credentials;
@@ -28,9 +30,11 @@ pub use config::{AgentEdit, AgentView, ControlSnapshot, HarnessEdit, ProcessStat
 pub use create::{CreationProfile, NewAgent};
 pub use credentials::PlatformCredentials;
 pub use defaults::{build_defaults, BuildDefaults};
-pub use import::{CredentialedImport, ImportPreview, Imports, LegacySource, PreparedImport};
+pub use import::{
+    CloneSettings, CredentialedImport, ImportPreview, Imports, LegacySource, PreparedImport,
+};
 pub use restart::{RestartChange, RestartDiffEntry};
 pub use runtime::{installed, managed_tool, Action, Controller, GooseModelContext, ModelContext};
 pub use secret::{Credentials, Secret};
-pub use store::Store;
+pub use store::{ParkedIdentity, Store};
 type Result<T> = std::result::Result<T, String>;

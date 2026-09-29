@@ -56,7 +56,7 @@ test("community dialog keeps oversized actions intact, reachable and keyboard op
     await expect(page.locator("html")).toHaveAttribute("data-color-mode", mode);
     for (const width of [1280, 800, 320]) {
       await page.setViewportSize({ width, height: 900 });
-      await expect(action).toHaveCSS("font-size", `${16 * scale}px`);
+      await expect(action).toHaveCSS("font-size", `${14 * scale}px`);
       await expect
         .poll(() =>
           action.evaluate((button) => {

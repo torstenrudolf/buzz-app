@@ -465,6 +465,22 @@ it("autofocuses each selected conversation once without stealing focus on update
   }
 });
 
+it("restores the draft end through StrictMode replay without resetting a deliberate selection on updates", () => {
+  writeView("scope", "draft:channel", "Saved draft");
+  const h = mount({ autoFocus: true });
+  expect(h.input()).toHaveFocus();
+  expect(h.input().selectionStart).toBe("Saved draft".length);
+  expect(h.input().selectionEnd).toBe("Saved draft".length);
+  act(() => h.input().setSelectionRange(1, 4));
+  h.retarget({ channelName: "Renamed" });
+  expect(h.input().selectionStart).toBe(1);
+  expect(h.input().selectionEnd).toBe(4);
+  h.retarget({ channelId: "other" });
+  h.retarget({ channelId: "channel" });
+  expect(h.input()).toHaveFocus();
+  expect(h.input().selectionStart).toBe("Saved draft".length);
+});
+
 it("lets an explicit focus restoration in the mount commit win", () => {
   const h = mount();
   h.unmount();
@@ -486,6 +502,7 @@ it("lets an explicit focus restoration in the mount commit win", () => {
         />
         <RestoreFocus />
       </>,
+      { reactStrictMode: true },
     );
     expect(target).toHaveFocus();
   } finally {

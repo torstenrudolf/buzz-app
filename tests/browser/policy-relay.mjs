@@ -224,6 +224,22 @@ export function policyRelay({
             filters.flatMap((filter) => answer(communityOf(url), filter)),
           );
         }
+        if (filters.length === 2 && filters[1].kinds?.includes(13534)) {
+          // Identity archive consent: the target's profile plus the relay roster.
+          expect(filters).toEqual([
+            { kinds: [0], authors: [expect.any(String)], limit: 1 },
+            { kinds: [13534], authors: [relayAuthor], limit: 1 },
+          ]);
+          for (const filter of filters)
+            report.queries.push({
+              community: communityOf(url),
+              filter,
+              at: performance.now(),
+            });
+          return Response.json(
+            filters.flatMap((filter) => answer(communityOf(url), filter)),
+          );
+        }
         if (filters.length === 2 && filters[0].kinds?.includes(39000)) {
           // Exact channel authority lookup, distinct from sidebar preferences.
           const ids = filters[0]["#d"];

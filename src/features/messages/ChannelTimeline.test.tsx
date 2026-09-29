@@ -4,6 +4,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import type { ReactElement } from "react";
 import { Virtualizer } from "virtua";
 import { ChannelTimeline } from "./ChannelTimeline";
+import { JumpToLatestButton } from "./JumpToLatestButton";
 import { createAgentLibrary } from "../agents/library";
 import { createRelaySession } from "../relay/session";
 import {
@@ -204,6 +205,7 @@ function setup({
     clientHeight: 668,
     scrollHeight: 3706,
     scrollTop: 2388,
+    focus: vi.fn(),
     getBoundingClientRect: () => ({ top: 0 }),
     querySelector: () => list,
     querySelectorAll: () =>
@@ -424,6 +426,25 @@ function setup({
       rows = [...rows, timelineMessage("appended")];
       render();
     },
+    jumpToLatest() {
+      const button = section.props.children.find(
+        (child) =>
+          !!child &&
+          typeof child === "object" &&
+          "type" in child &&
+          child.type === JumpToLatestButton,
+      ) as ReactElement<{ onClick(): void }> | undefined;
+      button?.props.onClick();
+    },
+    hasJumpToLatest() {
+      return section.props.children.some(
+        (child) =>
+          !!child &&
+          typeof child === "object" &&
+          "type" in child &&
+          child.type === JumpToLatestButton,
+      );
+    },
     unmount() {
       for (const effect of hooks.effects) effect.cleanup?.();
     },
@@ -485,7 +506,15 @@ it("an append does not steal a reading position when virtualizer still reports b
   h.scroll();
   h.handle.scrollToIndex.mockClear();
   h.append();
+  h.render();
   expect(h.handle.scrollToIndex).not.toHaveBeenCalled();
+  expect(h.hasJumpToLatest()).toBe(true);
+  h.jumpToLatest();
+  expect(h.handle.scrollToIndex).toHaveBeenCalledExactlyOnceWith(2, {
+    align: "end",
+  });
+  h.render();
+  expect(h.hasJumpToLatest()).toBe(false);
   h.unmount();
 });
 it("loads older rows at the current DOM threshold despite a stale far-away virtualizer offset", () => {
@@ -568,6 +597,24 @@ it("restores a saved message anchor instead of an unreachable cold pixel offset"
   });
   expect(h.handle.scrollTo).not.toHaveBeenCalled();
   h.unmount();
+});
+it("a restoration scroll through unmeasured rows does not become bottom follow", () => {
+  const h = setup({
+    mounted: [{ id: "last", y: 42 }],
+    initial: { offset: 80851, bottom: false, anchor: { id: "last", y: 42 } },
+  });
+  // Virtua's scroll event lands at the estimated bottom before rows measure.
+  h.element.scrollTop = 3038;
+  h.dispatchScroll();
+  h.handle.scrollToIndex.mockClear();
+  h.setRows([timelineMessage("first"), timelineMessage("last")]);
+  h.measureRows();
+  expect(h.handle.scrollToIndex).not.toHaveBeenCalledWith(1, { align: "end" });
+  h.unmount();
+  expect(h.saved()).toMatchObject({
+    bottom: false,
+    anchor: { id: "last" },
+  });
 });
 it.each([
   { offset: 1234, bottom: false },
@@ -1146,7 +1193,10 @@ it("restores an anchor inside a membership group after history joins across a pa
     membershipRow("anchor", 2),
     membershipRow("newer", 3),
   ]);
-  expect(h.handle.scrollToIndex).not.toHaveBeenCalled();
+  expect(h.handle.scrollToIndex).toHaveBeenCalledExactlyOnceWith(0, {
+    align: "start",
+    offset: -42,
+  });
   h.unmount();
 });
 it("live group growth follows the displayed group index rather than a hidden raw row", () => {
@@ -1464,3 +1514,48 @@ it("estimated list shrinkage can leave an intermediate gap without becoming read
   h.unmount();
   expect(h.saved().bottom).toBe(true);
 });
+
+it("records a measured shrink before an append hides its queued native scroll clamp", () => {
+  const h = setup();
+  h.element.scrollTop = 3038;
+  h.scroll();
+  h.append();
+  h.element.scrollHeight -= 200;
+  h.element.scrollTop -= 200;
+  h.measureRows(false); // Mutation delivery precedes the queued native scroll.
+  h.element.scrollHeight += 300; // A new event arrives before that scroll.
+  h.dispatchScroll();
+  h.handle.scrollToIndex.mockClear();
+  h.flush();
+  expect(h.handle.scrollToIndex).toHaveBeenCalledExactlyOnceWith(2, {
+    align: "end",
+  });
+  h.unmount();
+  expect(h.saved().bottom).toBe(true);
+});
+
+it.each([false, true])(
+  "a row refresh before the first measured height preserves cold restoration unless the reader intervenes=%s",
+  (gesture) => {
+    const mountedRow = { id: "last", y: 42 };
+    const mounted = [mountedRow];
+    const h = setup({
+      initial: { offset: 80851, bottom: false, anchor: { id: "last", y: 42 } },
+      mounted,
+    });
+    mountedRow.y = 142; // Native cold layout can report the right ID at the wrong Y.
+    h.dispatchScroll();
+    if (gesture) h.gesture();
+    h.handle.scrollToIndex.mockClear();
+    h.edit(); // Refresh cancels the original observer before any height delivery.
+    h.handle.scrollToIndex.mockClear();
+    h.measureRows();
+    if (gesture) expect(h.handle.scrollToIndex).not.toHaveBeenCalled();
+    else
+      expect(h.handle.scrollToIndex).toHaveBeenCalledExactlyOnceWith(1, {
+        align: "start",
+        offset: -42,
+      });
+    h.unmount();
+  },
+);

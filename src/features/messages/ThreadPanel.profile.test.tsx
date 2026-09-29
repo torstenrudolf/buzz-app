@@ -124,8 +124,8 @@ it("profiles the unchanged mounted app thread over signed HTTP, cold then reopen
     : 1;
   assert.ok(Number.isSafeInteger(count) && count >= 1 && count <= 50);
   if (output) assert.ok(!existsSync(output), "choose a new output path");
-  const source = provenance();
-  const initialLoad = loadavg();
+  const source = output ? provenance() : undefined;
+  const initialLoad = output ? loadavg() : undefined;
   const data = threadData(); // signatures are setup, outside the timed work
   const warmups = output ? 2 : 0;
   for (let i = 0; i < warmups; i++) await threadSample(data, mount);
@@ -150,6 +150,7 @@ it("profiles the unchanged mounted app thread over signed HTTP, cold then reopen
       profiler.disconnect();
     }
   }
+  if (!output || !source) return;
   assert.deepEqual(provenance(), source, "source changed during measurement");
   const artifact = {
     schema: 1,
@@ -179,10 +180,9 @@ it("profiles the unchanged mounted app thread over signed HTTP, cold then reopen
     warmups,
     samples,
   };
-  if (output)
-    writeFileSync(output, `${JSON.stringify(artifact, null, 2)}\n`, {
-      flag: "wx",
-    });
+  writeFileSync(output, `${JSON.stringify(artifact, null, 2)}\n`, {
+    flag: "wx",
+  });
   console.log(
     JSON.stringify({
       output,

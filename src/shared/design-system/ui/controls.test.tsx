@@ -554,3 +554,51 @@ test("search connects errors and disables clear in read-only mode", async () => 
   expect(input).toHaveValue("design");
   expect(change).not.toHaveBeenCalled();
 });
+
+test("search and code fields suppress correction without changing prose or explicit overrides", () => {
+  render(
+    <>
+      <SearchField label="Identity" value="" onValueChange={() => {}} />
+      <Textarea aria-label="Code" variant="code" />
+      <Textarea aria-label="Prose" />
+      <Input aria-label="Ordinary input" />
+      <SearchField
+        label="Override"
+        value=""
+        onValueChange={() => {}}
+        autoCorrect="on"
+        autoCapitalize="sentences"
+        spellCheck
+      />
+      <Textarea
+        aria-label="Code override"
+        variant="code"
+        autoCorrect="on"
+        autoCapitalize="sentences"
+        spellCheck
+      />
+    </>,
+  );
+  for (const field of [
+    screen.getByRole("searchbox", { name: "Identity" }),
+    screen.getByRole("textbox", { name: "Code" }),
+  ]) {
+    expect(field).toHaveAttribute("autocorrect", "off");
+    expect(field).toHaveAttribute("autocapitalize", "none");
+    expect(field).toHaveAttribute("spellcheck", "false");
+  }
+  for (const name of ["Prose", "Ordinary input"]) {
+    const field = screen.getByRole("textbox", { name });
+    expect(field).not.toHaveAttribute("autocorrect");
+    expect(field).not.toHaveAttribute("autocapitalize");
+    expect(field).not.toHaveAttribute("spellcheck");
+  }
+  for (const field of [
+    screen.getByRole("searchbox", { name: "Override" }),
+    screen.getByRole("textbox", { name: "Code override" }),
+  ]) {
+    expect(field).toHaveAttribute("autocorrect", "on");
+    expect(field).toHaveAttribute("autocapitalize", "sentences");
+    expect(field).toHaveAttribute("spellcheck", "true");
+  }
+});

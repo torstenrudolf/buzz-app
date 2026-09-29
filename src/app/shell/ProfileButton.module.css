@@ -1,3 +1,19 @@
+.triggerAvatar {
+  pointer-events: none;
+  position: relative;
+  display: flex;
+  width: 100%;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+}
+
+/* biome-ignore lint/correctness/noUnknownPseudoClass: CSS Modules global selector targets the shared Avatar element. */
+.triggerAvatar :global(.buzz-avatar) {
+  background: transparent;
+}
+
 .profileHeader {
   display: flex;
   align-items: center;
@@ -12,6 +28,11 @@
   width: 2.75rem;
   height: 2.75rem;
   flex: 0 0 2.75rem;
+}
+/* biome-ignore lint/correctness/noUnknownPseudoClass: CSS Modules global selector sizes the shared avatar button to this header. */
+.profileAvatar :global(.buzz-button) {
+  width: 100%;
+  height: 100%;
 }
 .profileDetails {
   display: grid;

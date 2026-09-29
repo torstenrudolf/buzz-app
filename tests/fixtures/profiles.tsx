@@ -51,7 +51,12 @@ const archivedProbe = new URLSearchParams(location.search).has("archived");
 const actionsProbe = new URLSearchParams(location.search).has("agent-actions");
 const logProbe = new URLSearchParams(location.search).has("harness-log");
 const root = message(viewer, "one", "Hello @Mic", 10, [["p", mic.pubkey]]);
-const unknown = message(missing, "one", "Unknown author", 11);
+const unknown = signed(missing, {
+  kind: 40002,
+  content: "Unknown author",
+  created_at: 11,
+  tags: [["h", "one"]],
+});
 const reply = message(viewer, "one", "Thread @Pinky", 12, [
   ["e", root.id, "", "reply"],
   ["p", pinky.pubkey],

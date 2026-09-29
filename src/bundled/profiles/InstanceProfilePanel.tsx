@@ -1,3 +1,4 @@
+import { useAgentOwnerEvidence } from "../../features/profiles/useAgentOwnerEvidence";
 import { useState } from "react";
 import { useRelayConnection } from "../../features/relay/react";
 import type { RelayData } from "../../features/relay/service";
@@ -14,7 +15,6 @@ import {
 } from "../../features/profiles/instance-target";
 import { profileTarget } from "../../features/profiles/target";
 import { Button } from "../../shared/design-system/ui/Button";
-import { useAgentOwnerEvidence } from "./ProfileAgentIdentity";
 import { ProfilePanel } from "./ProfilePanel";
 
 /** Host retains the exact target and owns replacement, close and focus restoration.

@@ -5,7 +5,7 @@ import {
   isOwnerInventoryFilter,
   readRelayLibrary,
 } from "./relay-library";
-import { createAgentLibrary, groupAgentLibrary } from "./library";
+import { createAgentLibrary } from "./library";
 import type { RelayEvent } from "../relay/events";
 
 const owner = keypair();
@@ -50,10 +50,8 @@ it("discovers remote-only identities, joins explicit profile references and igno
     avatar: "https://example.com/art.png",
   });
   expect(JSON.stringify(library)).not.toContain("not projected");
-  const grouped = groupAgentLibrary(library, (key) => key === b);
-  expect(grouped.groups[0]?.identities.map((row) => row.pubkey)).toEqual([a]);
-  expect(grouped.groups[1]?.identities).toEqual([]);
-  expect(grouped.custom.map((row) => row.pubkey)).toEqual([c]);
+  expect(library.identities[1]?.definitionId).toBe("builtin-fizz");
+  expect(library.identities[2]?.definitionId).toBeUndefined();
 });
 
 it("uses the publisher's slug grammar, not display-name matching", () => {

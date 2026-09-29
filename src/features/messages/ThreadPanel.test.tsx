@@ -29,9 +29,33 @@ vi.mock("../relay/react", () => {
   return { useRowProfiles: () => profiles };
 });
 vi.mock("./MessageRow", () => ({
-  MessageRow: ({ row, scope, retry, onOpenMediaReview }: MessageRowProps) => (
+  MessageRow: ({
+    row,
+    scope,
+    retry,
+    onOpenMediaReview,
+    onMediaPlayback,
+  }: MessageRowProps) => (
     <article data-message-id={row.id} data-scope={scope}>
       <span>{row.content}</span>
+      {row.attachments
+        .filter((attachment) => attachment.kind === "video")
+        .flatMap((attachment) =>
+          [0, 42].map((seconds) => (
+            <button
+              key={`${attachment.url}:${seconds}`}
+              type="button"
+              onClick={() =>
+                onMediaPlayback?.({
+                  attachmentUrl: attachment.url,
+                  seconds,
+                })
+              }
+            >
+              Report playback {seconds}
+            </button>
+          )),
+        )}
       <button type="button" onClick={() => retry?.(row.id)}>
         Retry {row.id}
       </button>
@@ -72,6 +96,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.useRealTimers();
   delete (HTMLElement.prototype as Partial<HTMLElement>).scrollIntoView;
+  delete (HTMLElement.prototype as Partial<HTMLElement>).scrollTo;
   delete (HTMLElement.prototype as Partial<HTMLElement>).scrollTop;
 });
 const row: ChannelMessage = {
@@ -172,6 +197,7 @@ function messagesHarness(
     },
   );
   HTMLElement.prototype.scrollIntoView = vi.fn();
+  HTMLElement.prototype.scrollTo = vi.fn();
   // Controlled dimensions exercise positioning policy, not browser layout.
   // Install before mount so the first real layout effect sees the same geometry.
   let height = 4000,
@@ -331,6 +357,108 @@ it("loads history automatically with error-only retry and no routine history con
   expect(h.view.refresh).toHaveBeenCalledTimes(3);
   expect(h.ensure).toHaveBeenCalledOnce();
 });
+it("starts a single older page after scrolling through 80% of loaded history", () => {
+  const h = messagesHarness();
+  h.snapshot.direction = "older";
+  h.snapshot.canLoadMore = true;
+  const section = h.render();
+  fireEvent.wheel(section, { deltaY: -1 });
+  h.scroll(681); // 20% of the 3,400px scrollable range is 680px.
+  expect(h.view.loadMore).not.toHaveBeenCalled();
+  h.scroll(680);
+  expect(h.view.loadMore).toHaveBeenCalledOnce();
+  h.scroll(0);
+  expect(h.view.loadMore).toHaveBeenCalledOnce();
+  h.snapshot.status = "loading";
+  h.render();
+  h.scroll(0);
+  expect(h.view.loadMore).toHaveBeenCalledOnce();
+});
+it("shows initial thread loading only until content is available", () => {
+  const h = messagesHarness();
+  h.snapshot.status = "loading";
+  h.snapshot.root = undefined;
+  const section = h.render();
+  expect(within(section).getByText("Loading thread…")).toBeVisible();
+  expect(
+    within(section).queryByText("Original message unavailable."),
+  ).toBeNull();
+  h.snapshot.root = row;
+  h.render();
+  expect(within(section).getByText("root")).toBeVisible();
+  expect(within(section).queryByText("Loading thread…")).toBeNull();
+});
+it("keeps older-page loading quiet and retry between root and replies", () => {
+  const h = messagesHarness();
+  h.snapshot.direction = "older";
+  h.snapshot.canLoadMore = true;
+  h.snapshot.replies = [{ ...row, id: "older-reply", content: "older reply" }];
+  const section = h.render();
+  fireEvent.wheel(section, { deltaY: -1 });
+  h.scroll(0);
+  expect(h.view.loadMore).toHaveBeenCalledOnce();
+
+  h.snapshot.status = "loading";
+  h.snapshot.readKind = "older";
+  h.render();
+  const root = screen.getByText("root").closest("article");
+  const reply = screen.getByText("older reply").closest("article");
+  if (!root || !reply) throw new Error("Missing root or older reply");
+  expect(within(section).queryByText("Loading older replies…")).toBeNull();
+  expect(root).toBeVisible();
+  expect(reply).toBeVisible();
+  expect(within(section).queryByText("Loading thread…")).toBeNull();
+
+  h.snapshot.status = "error";
+  h.snapshot.error = "offline";
+  h.render();
+  const alert = within(section).getByRole("alert");
+  expect(alert).toHaveTextContent("offline");
+  expect(
+    root.compareDocumentPosition(alert) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  expect(
+    alert.compareDocumentPosition(reply) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  fireEvent.click(
+    within(section).getByRole("button", { name: "Retry thread" }),
+  );
+  expect(h.view.loadMore).toHaveBeenCalledTimes(2);
+  expect(h.view.refresh).toHaveBeenCalledOnce();
+
+  h.snapshot.status = "ready";
+  h.snapshot.error = undefined;
+  h.render();
+  expect(within(section).queryByText("Loading older replies…")).toBeNull();
+});
+it("keeps retained-range repair quiet and retry after the replies", () => {
+  const h = messagesHarness();
+  h.snapshot.direction = "older";
+  h.snapshot.replies = [
+    { ...row, id: "retained-reply", content: "retained reply" },
+  ];
+  h.snapshot.status = "loading";
+  h.snapshot.readKind = "refresh";
+  const section = h.render();
+  expect(within(section).queryByText("Loading older replies…")).toBeNull();
+  expect(within(section).queryByText("Loading thread…")).toBeNull();
+
+  h.snapshot.status = "error";
+  h.snapshot.error = "repair failed";
+  h.render();
+  const reply = screen.getByText("retained reply").closest("article");
+  if (!reply) throw new Error("Missing retained reply");
+  const alert = within(section).getByRole("alert");
+  expect(alert).toHaveTextContent("repair failed");
+  expect(
+    reply.compareDocumentPosition(alert) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  fireEvent.click(
+    within(section).getByRole("button", { name: "Retry thread" }),
+  );
+  expect(h.view.refresh).toHaveBeenCalledTimes(2);
+  expect(h.view.loadMore).not.toHaveBeenCalled();
+});
 it("positions after successful history loading, then follows live replies without another read", () => {
   const h = messagesHarness();
   h.snapshot.status = "loading";
@@ -370,6 +498,67 @@ it("preserves reading above the bottom through live updates and refresh, then re
   h.render();
   expect(h.element.scrollTop).toBe(4900);
 });
+it("keeps video threads free of the timestamp comment shortcut at any playback position", () => {
+  const h = messagesHarness();
+  h.snapshot.root = {
+    ...row,
+    attachments: [{ url: "https://safe/video.mp4", kind: "video" }],
+  };
+  h.render();
+  for (const seconds of [0, 42]) {
+    fireEvent.click(
+      screen.getByRole("button", { name: `Report playback ${seconds}` }),
+    );
+    expect(
+      screen.queryByRole("button", { name: /^Comment at / }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Composer" })).toBeVisible();
+  }
+});
+
+it("counts replies recovered after a completed traversal, not initial history pages", () => {
+  const h = messagesHarness();
+  h.snapshot.canLoadMore = true;
+  h.render();
+  h.scroll(500);
+  h.snapshot.status = "loading";
+  h.snapshot.replies = [{ ...row, id: "history", createdAt: 1 }];
+  h.render();
+  h.snapshot.status = "ready";
+  h.snapshot.canLoadMore = false;
+  h.render();
+  h.scroll(500);
+  expect(screen.getByRole("button", { name: "Jump to latest" })).toBeVisible();
+
+  h.snapshot.status = "loading";
+  h.render();
+  h.snapshot.replies = [
+    ...h.snapshot.replies,
+    { ...row, id: "recovered", createdAt: 2 },
+  ];
+  h.render();
+  h.snapshot.status = "ready";
+  h.render();
+  expect(screen.getByRole("button", { name: "1 new message" })).toBeVisible();
+  h.snapshot.replies = [
+    ...h.snapshot.replies,
+    { ...row, id: "live", createdAt: 3 },
+  ];
+  h.render();
+  expect(screen.getByRole("button", { name: "2 new messages" })).toBeVisible();
+});
+
+it("transfers keyboard focus to the thread history before removing the jump button", () => {
+  const h = messagesHarness();
+  h.render();
+  h.scroll(500);
+  const jump = screen.getByRole("button", { name: "Jump to latest" });
+  jump.focus();
+  fireEvent.click(jump);
+  expect(h.element).toHaveFocus();
+  expect(screen.queryByRole("button", { name: "Jump to latest" })).toBeNull();
+});
+
 it("routes media in replies through the resolved root review workspace", () => {
   const open = vi.fn();
   const h = messagesHarness(undefined, open);
@@ -439,7 +628,7 @@ it("finishes automatic pages before initial positioning and preserves a reader�
   expect(h.view.loadMore).toHaveBeenCalledTimes(1);
   expect(h.element.scrollTop).toBe(0);
   const section = h.render();
-  fireEvent.wheel(section);
+  fireEvent.wheel(section, { deltaY: -1 });
   h.scroll(500);
   h.snapshot.status = "loading";
   h.render();

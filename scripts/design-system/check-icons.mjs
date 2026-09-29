@@ -23,6 +23,7 @@ const nonIconDependencies = new Set([
   "@tanstack/react-router",
   "@tauri-apps/api",
   "@tauri-apps/cli",
+  "@tauri-apps/plugin-updater",
   "@testing-library/dom",
   "@testing-library/jest-dom",
   "@testing-library/react",

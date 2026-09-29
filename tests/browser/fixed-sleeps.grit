@@ -1,0 +1,8 @@
+language js
+
+// A fixed wait is not a synchronization primitive. Wait for an observable
+// condition, hold the operation with a gate, or control the clock
+// (page.clock). See AGENTS.md "Deterministic tests".
+`$page.waitForTimeout($ms)` where {
+  register_diagnostic(span=$ms, message="Do not wait a fixed time. Wait for a condition, hold the work with a gate, or use page.clock.", severity="error")
+}

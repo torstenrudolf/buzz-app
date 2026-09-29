@@ -71,8 +71,9 @@ export function AgentDefaultsCard({
           Agent defaults
         </h3>
         <p className="m-0 text-body-sm text-secondary">
-          New agents start with this harness. Agents that leave provider, model
-          or effort blank use these values at each start; their own values win.
+          New agents start with this harness. Blank provider, model and effort,
+          plus inherited conversation context, use these values at each start.
+          An agent’s own choices win.
         </p>
       </div>
       <Select
@@ -113,6 +114,27 @@ export function AgentDefaultsCard({
           onChange={(event) => change({ effort: event.target.value })}
         />
       </Field>
+      <Select
+        label="Conversation context"
+        variant="field"
+        disabled={disabled}
+        value={current.sessionPolicy}
+        groups={[
+          {
+            label: "",
+            options: [
+              { value: "channel", label: "Entire channel" },
+              { value: "thread", label: "Each thread" },
+            ],
+          },
+        ]}
+        onValueChange={(sessionPolicy) =>
+          change({
+            sessionPolicy: sessionPolicy as AgentDefaultsEdit["sessionPolicy"],
+          })
+        }
+        description="Entire channel shares one conversation across threads. Each thread keeps a separate conversation; direct messages remain shared."
+      />
       <fieldset disabled={disabled} className="min-w-0 space-y-3">
         <legend className="mb-2 text-label-sm">Environment variables</legend>
         <p className="m-0 text-body-sm text-secondary">

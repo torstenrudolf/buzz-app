@@ -1,9 +1,5 @@
 import { expect, it, vi } from "vitest";
-import {
-  createAgentLibrary,
-  groupAgentLibrary,
-  type AgentLibrary,
-} from "./library";
+import { createAgentLibrary, type AgentLibrary } from "./library";
 import { combineInventory } from "./inventory";
 import { createRelaySession } from "../relay/session";
 import { keypair, metadata, roster } from "../relay/testing";
@@ -19,16 +15,6 @@ const library: AgentLibrary = {
     { pubkey: "d".repeat(64), name: "Other setup", definitionId: "unselected" },
   ],
 };
-it("preserves legacy selected grouping, unlinked and unknown entries without merging namesakes", () => {
-  const groups = groupAgentLibrary(library, (key) => key === "a".repeat(64));
-  expect(groups.groups).toHaveLength(2);
-  expect(groups.groups[0]?.identities.map((row) => row.pubkey)).toEqual([
-    "b".repeat(64),
-  ]);
-  expect(groups.groups[1]?.identities).toEqual([]);
-  expect(groups.custom[0]?.name).toBe("Custom");
-  expect(groups.unknown[0]?.name).toBe("Other setup");
-});
 it("lazy fresh reads replace, fail visibly, retry, and fence late results", async () => {
   const read = vi.fn().mockResolvedValue(library);
   const owner = createAgentLibrary(read);

@@ -34,6 +34,8 @@ fn agent(workspace: &Path) -> Agent {
         relay_url,
         name: "Test agent".into(),
         system_prompt: "test prompt".into(),
+        session_policy: None,
+        session_policy_inherit: false,
         workspace: workspace.display().to_string(),
         harness: HarnessEdit {
             databricks: None,
@@ -74,6 +76,49 @@ fn delete_refuses_stale_revision_and_removes_stopped_agent() {
         .is_empty());
     drop(controller);
     assert!(Store::open(root).unwrap().agents().unwrap().is_empty());
+}
+#[test]
+fn delete_keeps_a_key_shared_by_another_setup_of_the_same_identity() {
+    use std::sync::Mutex;
+    #[derive(Default)]
+    struct Tracked(Mutex<Vec<String>>);
+    impl Credentials for Tracked {
+        fn read_legacy(&self, _: crate::LegacySource, _: &str) -> Result<Secret> {
+            unreachable!()
+        }
+        fn read(&self, _: &str, _: &str) -> Result<Option<Secret>> {
+            unreachable!()
+        }
+        fn add(&self, _: &str, _: &Secret) -> Result<()> {
+            unreachable!()
+        }
+        fn delete(&self, id: &str, _: &str) -> Result<()> {
+            self.0.lock().unwrap().push(id.into());
+            Ok(())
+        }
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(dir.path().join("config")).unwrap();
+    let first = agent(dir.path());
+    let mut second = first.clone();
+    second.id = agent_id(PUB, "wss://other.example");
+    second.relay_url = "wss://other.example".into();
+    store.insert(vec![first.clone(), second.clone()]).unwrap();
+    let credentials = Arc::new(Tracked::default());
+    let mut controller = Controller::new(
+        store,
+        credentials.clone(),
+        Err("No fixture runtime".into()),
+        dir.path().join("ownership"),
+    );
+    controller.delete(&first.id, first.revision).unwrap();
+    assert!(credentials.0.lock().unwrap().is_empty());
+    assert!(controller
+        .delete(&second.id, second.revision)
+        .unwrap()
+        .agents
+        .is_empty());
+    assert_eq!(*credentials.0.lock().unwrap(), vec![second.credential_id]);
 }
 #[test]
 fn denied_credential_deletion_keeps_a_disabled_card_for_retry() {
@@ -326,6 +371,7 @@ fn actual_spawn_save_restart_stop_and_restore_contract() {
         picture: None,
         name: "Edited".into(),
         system_prompt: "changed prompt".into(),
+        session_policy: Some(None),
         workspace: a.workspace.clone(),
         harness: a.harness.clone(),
         environment: BTreeMap::new(),
@@ -409,6 +455,7 @@ fn new_records_launch_preference_is_independent_of_start_and_stop() {
         name: a.name.clone(),
         picture: None,
         system_prompt: a.system_prompt.clone(),
+        session_policy: Some(None),
         workspace: a.workspace.clone(),
         harness: a.harness.clone(),
         environment: BTreeMap::new(),
@@ -953,6 +1000,7 @@ fn shared_cache_spawn_capture_disconnect_snapshot_and_private_temp_cleanup() {
         picture: None,
         name: a.name.clone(),
         system_prompt: a.system_prompt.clone(),
+        session_policy: Some(None),
         workspace: a.workspace.clone(),
         harness: HarnessEdit {
             databricks: Some(DatabricksSettings {
@@ -1223,6 +1271,7 @@ fn build_floor_agrees_at_command_oauth_and_discovery_without_rewriting_saved_age
     assert_eq!(env["BUZZ_AGENT_MODEL"], Some("build-model"));
     assert_eq!(env["BUZZ_ACP_MODEL"], Some("build-model"));
     assert_eq!(env["BUZZ_ACP_RESPOND_TO"], Some("owner-only"));
+    assert_eq!(env["BUZZ_ACP_SESSION_POLICY"], Some("channel"));
     assert_eq!(env["BUZZ_ACP_ALLOWED_RESPOND_TO"], Some("owner-only"));
     assert_eq!(
         env.get("BUZZ_ACP_RESPOND_TO_ALLOWLIST").copied().flatten(),
@@ -1243,6 +1292,11 @@ fn build_floor_agrees_at_command_oauth_and_discovery_without_rewriting_saved_age
     assert!(command
         .get_envs()
         .any(|(k, v)| k == "BUZZ_ACP_RESPOND_TO" && v == Some(std::ffi::OsStr::new("anyone"))));
+    agent.session_policy = Some(crate::config::SessionPolicy::Thread);
+    let command = bundle.command_with_defaults(&agent, &key, &public).unwrap();
+    assert!(command
+        .get_envs()
+        .any(|(k, v)| k == "BUZZ_ACP_SESSION_POLICY" && v == Some(std::ffi::OsStr::new("thread"))));
 }
 
 #[test]
@@ -1405,6 +1459,7 @@ fn goose_model_context_uses_effective_draft_provider_without_projecting_secrets(
         picture: None,
         name: "Goose".into(),
         system_prompt: String::new(),
+        session_policy: Some(None),
         workspace: dir.path().display().to_string(),
         harness: HarnessEdit {
             command: goose.display().to_string(),
@@ -1428,6 +1483,8 @@ fn goose_model_context_uses_effective_draft_provider_without_projecting_secrets(
     let context = Controller::draft_goose_model_context(edit(None)).unwrap();
     assert_eq!(context.command, goose);
     assert_eq!(context.provider_id, "databricks_v2");
+    assert_eq!(context.model_id, "effective-model");
+    assert_eq!(context.workspace, dir.path());
     assert!(context.model_overridden);
     assert_eq!(
         context.environment["DATABRICKS_HOST"],
@@ -1551,6 +1608,7 @@ fn pi_selection_and_extensions_survive_save_reopen_and_reach_adapter() {
         name: a.name.clone(),
         picture: None,
         system_prompt: a.system_prompt.clone(),
+        session_policy: Some(None),
         workspace: a.workspace.clone(),
         harness: a.harness.clone(),
         environment: BTreeMap::new(),
@@ -1923,6 +1981,7 @@ fn agent_value_beats_agent_default_which_beats_build_default() {
         provider: "databricks_v2".into(),
         model: "global-model".into(),
         effort: "medium".into(),
+        session_policy: crate::config::SessionPolicy::Channel,
         environment: BTreeMap::from([
             ("PROVIDER_TEST_SETTING".into(), "global-value".into()),
             ("GLOBAL_SETTING".into(), "global-value".into()),
@@ -1961,6 +2020,7 @@ fn inherited_default_changes_reach_restart_diff_and_the_next_start() {
         provider: String::new(),
         model: model.into(),
         effort: String::new(),
+        session_policy: Some(crate::config::SessionPolicy::Channel),
         environment: BTreeMap::new(),
     };
     controller.save_defaults(edit("first-default")).unwrap();
@@ -2023,6 +2083,7 @@ fn saved_databricks_workspace_launches_without_inheriting_global_host_or_restart
         provider: "databricks_v2".into(),
         model: String::new(),
         effort: String::new(),
+        session_policy: Some(crate::config::SessionPolicy::Channel),
         environment: BTreeMap::from([
             ("DATABRICKS_HOST".into(), Some(host.into())),
             ("DATABRICKS_MODEL_FILTER".into(), Some(filter.into())),
@@ -2137,4 +2198,184 @@ fn databricks_environment_override_is_not_projected_as_a_restart_selector() {
     let wire = serde_json::to_string(&entries).unwrap();
     assert!(wire.contains("DATABRICKS_MODEL"));
     assert!(!wire.contains("secret-model") && !wire.contains("new-secret"));
+}
+
+#[test]
+fn retained_import_cannot_enable_or_open_credentials_until_explicit_setup() {
+    let root = tempfile::tempdir().unwrap();
+    let mut imported = agent(root.path());
+    imported.extra.insert("configured".into(), json!(false));
+    let id = imported.id.clone();
+    let mut store = Store::open(root.path().into()).unwrap();
+    store.insert(vec![imported]).unwrap();
+    let mut controller = Controller::new(
+        store,
+        Arc::new(Memory),
+        Err("No runtime".into()),
+        root.path().join("locks"),
+    );
+    assert!(controller.action(&id, Action::Start).unwrap().agents[0]
+        .error
+        .as_ref()
+        .unwrap()
+        .contains("Use here"));
+    assert!(controller.credential_request(&id).is_err());
+    assert!(controller.launch_ids().unwrap().is_empty());
+    assert!(!controller.restore().unwrap().agents[0].enabled);
+    let resolution = crate::community::tests::resolution("wss://relay.example");
+    let snapshot = controller.use_here(&id, resolution).unwrap();
+    assert!(snapshot.agents[0].configured);
+    assert!(!snapshot.agents[0].enabled);
+    assert_eq!(snapshot.agents[0].pubkey, PUB);
+}
+#[test]
+fn use_here_clears_retained_startup_intent_until_an_explicit_start() {
+    // (destination, explicit startup preference, legacy enabled)
+    for (relay, explicit, legacy) in [
+        ("wss://relay.example", Some(true), false),
+        ("wss://other.example", Some(true), false),
+        ("wss://relay.example", None, true),
+    ] {
+        let root = tempfile::tempdir().unwrap();
+        let mut imported = agent(root.path());
+        imported.extra.insert("configured".into(), json!(false));
+        imported.start_on_app_launch = explicit;
+        imported.enabled = legacy;
+        let id = imported.id.clone();
+        let mut store = Store::open(root.path().into()).unwrap();
+        store.insert(vec![imported]).unwrap();
+        let mut controller = Controller::new(
+            store,
+            Arc::new(Memory),
+            Err("No runtime".into()),
+            root.path().join("locks"),
+        );
+        assert!(controller.launch_ids().unwrap().is_empty(), "{relay}");
+        let snapshot = controller
+            .use_here(&id, crate::community::tests::resolution(relay))
+            .unwrap();
+        assert!(controller.launch_ids().unwrap().is_empty(), "{relay}");
+        let target = agent_id(PUB, relay);
+        let saved = snapshot.agents.iter().find(|a| a.id == target).unwrap();
+        assert!(saved.configured);
+        assert!(!saved.enabled);
+        assert!(!saved.start_on_app_launch);
+        // Reopening the saved state must not restore a running agent.
+        drop(controller);
+        let reopened = Controller::new(
+            Store::open(root.path().into()).unwrap(),
+            Arc::new(Memory),
+            Err("No runtime".into()),
+            root.path().join("locks"),
+        );
+        assert!(reopened.launch_ids().unwrap().is_empty(), "{relay}");
+    }
+}
+
+#[test]
+fn use_here_retry_keeps_a_configured_agent_startup_preference() {
+    let root = tempfile::tempdir().unwrap();
+    let mut configured = agent(root.path());
+    configured.enabled = true;
+    configured.start_on_app_launch = Some(true);
+    let id = configured.id.clone();
+    let mut store = Store::open(root.path().into()).unwrap();
+    store.insert(vec![configured]).unwrap();
+    let path = root.path().join("agents.json");
+    let before = fs::read(&path).unwrap();
+    store
+        .use_here(
+            &id,
+            crate::community::tests::resolution("wss://relay.example"),
+        )
+        .unwrap();
+    assert_eq!(fs::read(&path).unwrap(), before);
+}
+
+#[test]
+fn use_here_rejects_configured_other_community_without_writes() {
+    let root = tempfile::tempdir().unwrap();
+    let mut original = agent(root.path());
+    original.enabled = true;
+    let id = original.id.clone();
+    let mut store = Store::open(root.path().into()).unwrap();
+    store.insert(vec![original]).unwrap();
+    let path = root.path().join("agents.json");
+    let before = fs::read(&path).unwrap();
+    let error = store
+        .use_here(
+            &id,
+            crate::community::tests::resolution("wss://other.example"),
+        )
+        .unwrap_err();
+    assert!(error.contains("Clone"));
+    assert_eq!(fs::read(&path).unwrap(), before);
+}
+
+#[test]
+fn use_here_recovers_incomplete_import_but_cannot_add_a_third_community() {
+    let root = tempfile::tempdir().unwrap();
+    let mut imported = agent(root.path());
+    imported.extra.insert("configured".into(), json!(false));
+    let id = imported.id.clone();
+    let mut store = Store::open(root.path().into()).unwrap();
+    store.insert(vec![imported]).unwrap();
+    let path = root.path().join("agents.json");
+    let before = fs::read(&path).unwrap();
+    let mut forged = crate::community::tests::resolution("wss://other.example");
+    forged.relay_url = "wss://attacker.example".into();
+    assert!(store.use_here(&id, forged).is_err());
+    assert_eq!(fs::read(&path).unwrap(), before);
+    store
+        .use_here(
+            &id,
+            crate::community::tests::resolution("wss://other.example"),
+        )
+        .unwrap();
+    let agents = store.agents().unwrap();
+    assert!(!agents[0].configured());
+    assert!(agents[1].configured());
+    assert!(!agents[1].enabled);
+    assert_eq!(agents[1].pubkey, agents[0].pubkey);
+    assert_eq!(agents[1].credential_id, agents[0].credential_id);
+    let after = fs::read(&path).unwrap();
+    // A delayed retry of the completed recovery is harmless.
+    store
+        .use_here(
+            &id,
+            crate::community::tests::resolution("wss://other.example"),
+        )
+        .unwrap();
+    assert_eq!(fs::read(&path).unwrap(), after);
+    assert!(store
+        .use_here(
+            &id,
+            crate::community::tests::resolution("wss://third.example")
+        )
+        .is_err());
+    assert_eq!(fs::read(&path).unwrap(), after);
+}
+
+#[test]
+fn use_here_exhausted_revision_preserves_the_saved_import() {
+    let root = tempfile::tempdir().unwrap();
+    let mut imported = agent(root.path());
+    imported.revision = 9_007_199_254_740_991;
+    imported.extra.insert("configured".into(), json!(false));
+    let id = imported.id.clone();
+    let mut store = Store::open(root.path().into()).unwrap();
+    store.insert(vec![imported]).unwrap();
+    let path = root.path().join("agents.json");
+    let before = fs::read(&path).unwrap();
+    assert_eq!(
+        store
+            .use_here(
+                &id,
+                crate::community::tests::resolution("wss://relay.example")
+            )
+            .unwrap_err(),
+        "Agent revision exhausted"
+    );
+    assert_eq!(fs::read(path).unwrap(), before);
+    assert!(!store.snapshot().unwrap().agents[0].configured);
 }

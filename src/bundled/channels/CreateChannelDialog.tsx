@@ -188,7 +188,6 @@ function OpenCreateChannelDialog({
 
   const recoverySummary = summary && (
     <section aria-label="Channel setup summary">
-      <h3 className="text-label">Saved channel setup</h3>
       <p>
         {summary.agents.length
           ? `${summary.agents.length} selected agent${summary.agents.length === 1 ? "" : "s"}.`

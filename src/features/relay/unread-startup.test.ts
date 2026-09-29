@@ -142,9 +142,27 @@ it("initial unread markers and evidence bypass held optional profiles without ca
 
 it("evidence gets its own deadline after a failed marker read; marker errors stay visible", async () => {
   const h = setup();
+  // Control the caller deadline directly instead of coupling this test to
+  // Node's native timeout clock or the reader's separate job timer.
+  const deadlines: AbortController[] = [];
+  const timeout = vi.spyOn(AbortSignal, "timeout").mockImplementation(() => {
+    const controller = new AbortController();
+    deadlines.push(controller);
+    return controller.signal;
+  });
   const release = h.holdMarker();
   try {
-    await h.session.unread.ensure();
+    const done = h.session.unread.ensure();
+    await vi.waitFor(() =>
+      expect(h.trace.map(({ kind }) => kind)).toEqual([30078]),
+    );
+    expect(deadlines).toHaveLength(1);
+    const marker = deadlines[0];
+    assert(marker);
+    marker.abort(new DOMException("Marker deadline expired", "TimeoutError"));
+    await done;
+    expect(deadlines).toHaveLength(2);
+    expect(deadlines[1]?.signal.aborted).toBe(false);
     expect(h.trace.map(({ kind }) => kind)).toEqual([30078, 9]);
     expect(h.snapshot()).toMatchObject({
       observedCount: 1,
@@ -155,11 +173,12 @@ it("evidence gets its own deadline after a failed marker read; marker errors sta
       completeness: "unknown",
     });
   } finally {
+    timeout.mockRestore();
     release();
   }
   await h.session.unread.refresh();
   expect(h.session.unread.sync().status).toBe("reconciled");
-}, 15000);
+});
 
 it("queries all 278 membership IDs with sequential relay-legal batches and publishes each batch", async () => {
   const h = setup(278);

@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+import { stubAvatarBrowserApis } from "../agents/avatar-testing";
+stubAvatarBrowserApis();
 import "@testing-library/jest-dom/vitest";
 import {
   act,

@@ -888,6 +888,54 @@ it("Pi Test connection prompts the draft selection and reports each result", asy
   }
 });
 
+it("Goose Test connection checks the unsaved provider and model", async () => {
+  const f = controlFixture();
+  const run = vi.fn(async () => ({
+    host: "",
+    models: [],
+    modelOverridden: false,
+    disconnected: false,
+  }));
+  f.host.models = { begin: async () => 1, run, cancel: async () => {} };
+  const control = createAgentControl(f.host);
+  const view = render(
+    <AgentModelPicker
+      draft={{
+        ...agentDraft(f.agent),
+        command: "/local/goose",
+        provider: "openai",
+        model: "gpt",
+      }}
+      control={control}
+      defaults={undefined}
+      onChange={() => {}}
+    />,
+  );
+  try {
+    await userEvent
+      .setup()
+      .click(screen.getByRole("button", { name: "Test connection" }));
+    expect(run).toHaveBeenCalledWith(
+      1,
+      expect.objectContaining({
+        action: "test",
+        edit: expect.objectContaining({
+          harness: expect.objectContaining({
+            provider: "openai",
+            model: "gpt",
+          }),
+        }),
+      }),
+    );
+    expect(
+      await screen.findByText("Connected. The model replied."),
+    ).toBeVisible();
+  } finally {
+    view.unmount();
+    control.dispose();
+  }
+});
+
 it("browses an inherited Agent defaults workspace without repeating it in the form", async () => {
   const f = controlFixture();
   const run = vi.fn(async () => ({

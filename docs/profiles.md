@@ -59,8 +59,10 @@ lines/64 KiB. Changing community, losing ownership or the local record closes th
 view. Empty, loading, copy and generic error states do not expose native errors.
 A packaged app cannot obtain this development-broker proof and fails closed.
 
-When Agent Activity is enabled and the host supplies conversation context, **View
-activity** opens its raw panel for this exact identity and originating channel.
+When Agent Activity is enabled, the host supplies conversation context and the
+profile is a known agent (a self-declared agent profile hint or a local library
+record), **View activity** opens its raw panel for this exact identity and
+originating channel. People's profiles show neither the card nor the action.
 The Info tab's “Latest activity” card shows up to three recently updated assistant
 messages or tool titles/statuses from the existing session-owned records, restricted
 to this exact public key and originating channel (including threads). Retained text
@@ -80,8 +82,9 @@ no preview, never an all-channel fallback. Connecting, disconnected, unavailable
 and empty states are explicit. Counts and detailed explanations stay in the
 activity panel; the preview does not infer idle state or successful completion.
 
-This action is offered for any public identity: it does not infer that the identity
-is an owned/running agent. Public agent hints never grant telemetry access. The
+The known-agent check is the same display-only evidence as the squircle avatar: it
+does not infer that the identity is an owned/running agent. Public agent hints
+never grant telemetry access. The
 existing observer admission and session access-reset/generation fences remain the
 authority; the child adds no library read, capture lease, socket, timer or store.
 Disabling Agent Activity removes the preview/action and clears capture. Profile
@@ -164,6 +167,17 @@ supplies agent display metadata, not management authority.
   Channels resolves active contributions at click time and owns the right slot.
 - `nostr:npub…` is the exact public-key target, with no relay hint or authority.
   Opening uses the current community session, never another connection or cache.
+- Message avatars use an app-local `buzz:agent-profile:<pubkey>` target when
+  their existing display evidence identifies an agent, including kind-40002
+  messages without profile metadata. This preserves the avatar shape and an
+  unnamed **Unknown agent** heading. Other unnamed identities use `npub…xyz`.
+  The full copyable public key and profile-read retry remain available.
+  The navigation hint grants no ownership or native control and is not added
+  to the shared agent directory. Only the panel boundary accepts it; public
+  message links and composer tokens remain restricted to `nostr:npub…`.
+  Public metadata and configured names still win.
+  An empty confirmed native inventory says **Not managed on this device**;
+  it does not claim the agent is offline or absent from the whole community.
 - Display names bind only against the message's signed `p` keys, longest first.
   Unknown, ambiguous, untagged and incomplete names stay plain text. Code/link
   contexts are conservatively excluded on the full body, before URL rendering.
@@ -189,7 +203,7 @@ supplies agent display metadata, not management authority.
 ## UI and iteration
 
 Avatar, name, about, self-declared NIP-05 (not DNS-verified), exact copyable
-npub, and an optional compact activity preview/action. **Message** is offered for a
+npub, and, for known agents, an optional compact activity preview/action. **Message** is offered for a
 foreign profile when the session can start direct messages; as in New message,
 a known agent qualifies only while this community's ready native control manages
 it, rechecked on click. It opens (or reopens) the one-to-one DM through the session's direct-message operation and

@@ -82,9 +82,7 @@ it("reports from the message menu, keeps input after failure and confirms succes
   mount(publish);
   const trigger = screen.getByRole("button", { name: "More message actions" });
   await user.click(trigger);
-  await user.click(
-    await screen.findByRole("menuitem", { name: "Report message" }),
-  );
+  await user.click(await screen.findByRole("menuitem", { name: "Report" }));
   const dialog = await screen.findByRole("dialog", { name: "Report message" });
   // A virtualized list must not evict the row owning the draft and outcome.
   expect(keepMounted.mock.calls).toEqual([[root.id]]);
@@ -142,9 +140,7 @@ it("starts each report with an empty form", async () => {
   mount(async () => {});
   const trigger = screen.getByRole("button", { name: "More message actions" });
   await user.click(trigger);
-  await user.click(
-    await screen.findByRole("menuitem", { name: "Report message" }),
-  );
+  await user.click(await screen.findByRole("menuitem", { name: "Report" }));
   await user.click(await screen.findByRole("radio", { name: "Other" }));
   expect(keepMounted.mock.calls).toEqual([[root.id]]);
   await user.click(screen.getByRole("button", { name: "Cancel" }));
@@ -155,9 +151,7 @@ it("starts each report with an empty form", async () => {
   await waitFor(() => expect(release).toHaveBeenCalledOnce());
   expect(focusedAtRelease).toBe(trigger);
   await user.click(trigger);
-  await user.click(
-    await screen.findByRole("menuitem", { name: "Report message" }),
-  );
+  await user.click(await screen.findByRole("menuitem", { name: "Report" }));
   expect(
     (
       (await screen.findByRole("radio", { name: "Other" })) as HTMLElement

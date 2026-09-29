@@ -99,15 +99,18 @@ export function ChannelSidebar(props: Props) {
         <div className="shell-sidebar-default">
           <Panel as="aside" aria-label="Channel sidebar">
             <div className={styles.sidebar}>
-              {navigation}
-              <p className={styles.empty}>
-                {connection.status === "connecting"
-                  ? "Connecting to your relay…"
-                  : (connection.error ?? "Choose a community to see channels.")}
-              </p>
-              {connection.status === "error" && (
-                <Button onClick={props.relay.retry}>Retry channels</Button>
-              )}
+              <div className={styles.sidebarScroll}>
+                {navigation}
+                <p className={styles.empty}>
+                  {connection.status === "connecting"
+                    ? "Connecting to your relay…"
+                    : (connection.error ??
+                      "Choose a community to see channels.")}
+                </p>
+                {connection.status === "error" && (
+                  <Button onClick={props.relay.retry}>Retry channels</Button>
+                )}
+              </div>
             </div>
           </Panel>
         </div>
@@ -146,11 +149,13 @@ class SidebarBoundary extends Component<
       <div className="shell-sidebar-default">
         <Panel as="aside" aria-label="Channel sidebar">
           <div className={styles.sidebar}>
-            {this.props.fallback}
-            <p role="alert">Channels couldn’t open.</p>
-            <Button onClick={() => this.setState({ failed: false })}>
-              Retry channels
-            </Button>
+            <div className={styles.sidebarScroll}>
+              {this.props.fallback}
+              <p role="alert">Channels couldn’t open.</p>
+              <Button onClick={() => this.setState({ failed: false })}>
+                Retry channels
+              </Button>
+            </div>
           </div>
         </Panel>
       </div>
@@ -847,7 +852,13 @@ function ReadySidebar({
         />
       )}
       <div className="shell-sidebar" style={{ width: sidebar.width }}>
-        <Panel as="aside" aria-label="Channel sidebar">
+        <Panel
+          as="aside"
+          aria-label="Channel sidebar"
+          aria-busy={
+            preferences.status === "loading" || startup.updating || undefined
+          }
+        >
           <div className={styles.sidebar}>
             {kitState.status === "error" && (
               <p role="alert">
@@ -1020,21 +1031,11 @@ function ReadySidebar({
                 <p className={styles.empty}>No channels yet.</p>
               )}
             </SidebarUnread>
-            {cached ? (
+            {cached && connectionError && (
               <p className={styles.preferenceNotice} role="status">
-                {connectionError
-                  ? "Offline · Showing saved conversations."
-                  : "Reconnecting…"}
-                {connectionError && (
-                  <Button onClick={relay.retry}>Retry connection</Button>
-                )}
+                Offline · Showing saved conversations.
+                <Button onClick={relay.retry}>Retry connection</Button>
               </p>
-            ) : (
-              startup.updating && (
-                <p className={styles.preferenceNotice} role="status">
-                  Updating sidebar details…
-                </p>
-              )
             )}
             {preferences.sortErrors?.map(({ group, mode, error }) => (
               <div key={group} className={styles.preferenceNotice} role="alert">

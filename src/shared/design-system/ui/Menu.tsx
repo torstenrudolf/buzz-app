@@ -1,6 +1,7 @@
 import { ContextMenu as BaseContextMenu } from "@base-ui/react/context-menu";
 import { Menu as BaseMenu } from "@base-ui/react/menu";
 import { CheckIcon, CaretRightIcon } from "../icons/index";
+import { useFinalFocusUnlessMoved } from "./finalFocus";
 import type { ComponentProps, ReactNode } from "react";
 
 export const MenuRoot = BaseMenu.Root;
@@ -40,8 +41,11 @@ function PositionedPopup({
   side = "bottom",
   sideOffset = 4,
   sticky,
+  finalFocus,
+  ref,
   ...props
 }: PopupProps) {
+  const focus = useFinalFocusUnlessMoved(finalFocus, ref);
   return (
     <BaseMenu.Portal>
       <BaseMenu.Positioner
@@ -57,6 +61,8 @@ function PositionedPopup({
       >
         <BaseMenu.Popup
           {...props}
+          ref={focus.ref}
+          finalFocus={focus.finalFocus}
           data-buzz-ui=""
           data-size={size}
           className="buzz-menu-popup text-body-sm"

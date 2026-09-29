@@ -47,9 +47,10 @@ import {
   PlusIcon,
 } from "../../../../src/shared/design-system/icons/index";
 import type { ReactNode } from "react";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { Switch } from "../../../../src/shared/design-system/ui/Switch";
 import { PreferenceRow } from "../../../../src/shared/design-system/ui/PreferenceRow";
+import { SwitchPreferenceRow } from "../../../../src/shared/design-system/ui/SwitchPreferenceRow";
 import { Accordion } from "../../../../src/shared/design-system/ui/Accordion";
 
 import { Avatar } from "../../../../src/shared/design-system/ui/Avatar";
@@ -835,17 +836,57 @@ function InlineChipSpecimen() {
 function SwitchSpecimen() {
   const [checked, setChecked] = useState(false);
   const [busyChecked, setBusyChecked] = useState(true);
+  const [selected, setSelected] = useState(false);
+  const [managed, setManaged] = useState(false);
+  const checkboxId = useId();
   return (
     <div className="component-specimen-stack">
       <div className="divide-y divide-line">
-        <PreferenceRow
+        <SwitchPreferenceRow
+          icon={<ChatCircleIcon size={20} />}
           label="Desktop alerts"
           description="Show notifications for new activity."
           checked={checked}
           onCheckedChange={setChecked}
         />
-        <PreferenceRow label="Sound" checked />
-        <PreferenceRow label="Unavailable preference" disabled />
+        <SwitchPreferenceRow label="Sound" checked />
+        <SwitchPreferenceRow
+          label="Unavailable preference"
+          icon={<ChatCircleIcon size={20} />}
+          disabled
+        />
+        <PreferenceRow
+          icon={<HashIcon size={20} />}
+          title="Include archived channels"
+          subtitle="Include archived channels when browsing your saved conversations. This longer explanation wraps while the control stays aligned."
+          controlId={checkboxId}
+          trailing={(labelProps) => (
+            <Checkbox
+              {...labelProps}
+              id={checkboxId}
+              label={null}
+              checked={selected}
+              onCheckedChange={setSelected}
+            />
+          )}
+        />
+        <PreferenceRow
+          title="Connected accounts"
+          subtitle={
+            managed
+              ? "Account management opened."
+              : "Manage the accounts connected to this workspace."
+          }
+          trailing={
+            <Button size="sm" onClick={() => setManaged(!managed)}>
+              {managed ? "Done" : "Manage"}
+            </Button>
+          }
+        />
+        <PreferenceRow
+          title="Channels"
+          trailing={<span className="text-body-sm text-subtle">Required</span>}
+        />
       </div>
       <Switch
         checked={checked}

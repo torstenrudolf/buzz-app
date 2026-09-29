@@ -69,6 +69,9 @@ function Control({
         }
       >
         <BaseCombobox.Input
+          autoCorrect="off"
+          autoCapitalize="none"
+          spellCheck={false}
           {...props}
           id={inputId}
           data-buzz-ui=""

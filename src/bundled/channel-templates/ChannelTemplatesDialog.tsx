@@ -1,3 +1,4 @@
+import type { RelaySession } from "../../features/relay/session";
 import {
   useEffect,
   useLayoutEffect,
@@ -22,6 +23,7 @@ import { AgentSelection, TemplateFields } from "./TemplateFields";
 import styles from "../channels/ChannelTemplates.module.css";
 
 export function ChannelTemplatesDialog({
+  session,
   open,
   onOpenChange,
   kit,
@@ -30,6 +32,7 @@ export function ChannelTemplatesDialog({
   notice,
   active,
 }: {
+  session?: RelaySession | undefined;
   active(): boolean;
   open: boolean;
   onOpenChange(open: boolean): void;
@@ -150,6 +153,7 @@ export function ChannelTemplatesDialog({
             </Field>
             {draft.type === "team" ? (
               <AgentSelection
+                session={session}
                 agents={agents}
                 selected={draft.agents}
                 onChange={(agents) => setDraft({ ...draft, agents })}
@@ -166,6 +170,7 @@ export function ChannelTemplatesDialog({
                   />
                 </Field>
                 <TemplateFields
+                  session={session}
                   value={draft}
                   onChange={(value) => setDraft({ ...draft, ...value })}
                   entries={state.entries}

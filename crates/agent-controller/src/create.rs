@@ -41,6 +41,8 @@ impl NewAgent {
             relay_url: self.relay.clone(),
             name: String::new(),
             system_prompt: String::new(),
+            session_policy: None,
+            session_policy_inherit: false,
             workspace: String::new(),
             harness: HarnessEdit {
                 command: String::new(),

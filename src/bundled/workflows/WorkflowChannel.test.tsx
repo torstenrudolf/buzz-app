@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { act, cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
 import { WorkflowChannel } from "./WorkflowChannel";
@@ -60,4 +60,37 @@ it("hands confirmed deletion to the page and discards draft navigation risk", as
     window.dispatchEvent(new Event("beforeunload", { cancelable: true })),
   ).toBe(true);
   expect(fixture.calls.delete).toBe(0);
+});
+
+it("keeps loaded configurations visible without a refresh banner", async () => {
+  const fixture = createWorkflowFixture();
+  render(
+    <WorkflowChannel
+      capability={fixture.capability}
+      channelId={fixtureChannel}
+      channelName="Fixture channel"
+      viewer={fixtureViewer}
+      onDelete={() => {}}
+    />,
+  );
+  await screen.findByText("Message helper");
+  act(() =>
+    fixture.definitions.update({
+      status: "loading",
+      data: { items: [fixtureDefinition], partial: false },
+    }),
+  );
+  expect(screen.getByText("Message helper")).toBeVisible();
+  expect(screen.queryByText("Reading configurations…")).toBeNull();
+  act(() =>
+    fixture.definitions.update({
+      status: "error",
+      error: "Read failed",
+      data: { items: [fixtureDefinition], partial: false },
+    }),
+  );
+  expect(screen.getByRole("alert")).toHaveTextContent("Read failed");
+  expect(
+    screen.getByRole("button", { name: "Refresh configurations" }),
+  ).toBeEnabled();
 });

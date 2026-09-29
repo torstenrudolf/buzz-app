@@ -83,6 +83,8 @@ export interface ReadTransport {
   readonly workflows?: WorkflowHost;
   /** Narrow lifecycle signer/publisher; never supplied to the message outbox. */
   readonly channelLifecycle?: RelayWriter;
+  /** Name/about/private-only metadata writer, separate from lifecycle and outbox. */
+  readonly channelDetails?: RelayWriter;
   /** Narrow NIP-IA 9035/9036 signer/publisher; never supplied to the message outbox. */
   readonly identityArchive?: RelayWriter;
   /** Purpose-bound observer decoding on the shared host live stream. */
@@ -366,6 +368,7 @@ export async function connectBrokerTransport(
     attachmentUploads?: boolean;
     directMessages?: boolean;
     channelLifecycle?: boolean;
+    channelDetails?: boolean;
     identityArchives?: boolean;
     relayUrl?: string;
     relayHttpUrl?: string;
@@ -811,6 +814,9 @@ export async function connectBrokerTransport(
             ).muted;
           },
         }
+      : {}),
+    ...(session.channelDetails === true
+      ? { channelDetails: routeWriter("channel-details") }
       : {}),
     ...(session.channelLifecycle === true
       ? { channelLifecycle: routeWriter("channel-lifecycle") }

@@ -1,5 +1,6 @@
 import { Popover as BasePopover } from "@base-ui/react/popover";
 import type { ComponentProps } from "react";
+import { useFinalFocusUnlessMoved } from "./finalFocus";
 
 export const PopoverRoot = BasePopover.Root;
 export const PopoverTrigger = BasePopover.Trigger;
@@ -42,8 +43,11 @@ export function PopoverPopup({
   size = "default",
   padding = "content",
   colorMode,
+  finalFocus,
+  ref,
   ...props
 }: PopoverPopupProps) {
+  const focus = useFinalFocusUnlessMoved(finalFocus, ref);
   return (
     <BasePopover.Portal>
       <BasePopover.Positioner
@@ -59,6 +63,8 @@ export function PopoverPopup({
       >
         <BasePopover.Popup
           {...props}
+          ref={focus.ref}
+          finalFocus={focus.finalFocus}
           data-buzz-ui=""
           data-size={size}
           data-padding={padding}

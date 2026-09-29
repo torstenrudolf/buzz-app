@@ -23,10 +23,18 @@ import {
   roster,
   signed,
 } from "../../src/features/relay/testing";
-import type { RelayEvent } from "../../src/features/relay/events";
+import type { ReadFilter, RelayEvent } from "../../src/features/relay/events";
 import type { Attachment } from "../../src/features/relay/contracts";
 import "../../src/shared/styles/globals.css";
 
+const strictWindows = new URLSearchParams(location.search).has("threadWindow");
+const nestedWindow = new URLSearchParams(location.search).has("nestedWindow");
+const channelOne = strictWindows
+  ? "00000000-0000-0000-0000-000000000001"
+  : "one";
+const channelTwo = strictWindows
+  ? "00000000-0000-0000-0000-000000000002"
+  : "two";
 const context = new Context();
 const plugins = createPluginManager(context, {
   bundled: bundledPlugins.filter(({ manifest }) =>
@@ -51,12 +59,12 @@ const roots = [
     content: "First root",
     created_at: 1,
     tags: [
-      ["h", "one"],
+      ["h", channelOne],
       ...media.map((item) => ["imeta", `url ${item.url}`, "m image/png"]),
     ],
   }),
-  message(viewer, "one", "Second root", 2),
-  message(viewer, "two", "Other channel root", 3),
+  message(viewer, channelOne, "Second root", 2),
+  message(viewer, channelTwo, "Other channel root", 3),
 ] as const;
 function channelOf(event: RelayEvent) {
   const id = event.tags.find((tag) => tag[0] === "h")?.[1];
@@ -64,14 +72,14 @@ function channelOf(event: RelayEvent) {
   return id;
 }
 const replies = roots.flatMap((root) =>
-  Array.from({ length: 60 }, (_, i) =>
+  Array.from({ length: strictWindows ? 303 : 60 }, (_, i) =>
     i === 0 && root === roots[0]
       ? signed(viewer, {
           kind: 9,
           content: "Reply with image",
           created_at: 10,
           tags: [
-            ["h", "one"],
+            ["h", channelOne],
             ["e", root.id, "", "reply"],
             ["imeta", `url ${replyAttachment.url}`, "m image/png"],
           ],
@@ -121,12 +129,31 @@ const message = "${"wide-content-".repeat(35)}";
 );
 const exactReply = replies[0];
 if (!exactReply) throw new Error("Missing exact reply fixture");
+// The oldest reply in the initial window has a parent in page two.
+// Keep the rest of the fixture flat for existing scrollback tests.
+const nestedParent = replies[292];
+const nestedChild = replies[293];
+if (nestedWindow && (!nestedParent || !nestedChild))
+  throw new Error("Missing nested window fixture");
+if (nestedWindow && nestedParent && nestedChild) {
+  const child = message(
+    viewer,
+    channelOne,
+    "Nested window child",
+    nestedChild.created_at,
+    [
+      ["e", roots[0].id, "", "root"],
+      ["e", nestedParent.id, "", "reply"],
+    ],
+  );
+  replies.splice(293, 1, child);
+}
 const exactReaction = signed(viewer, {
   kind: 7,
   content: "👍",
   created_at: 71,
   tags: [
-    ["h", "one"],
+    ["h", channelOne],
     ["e", exactReply.id],
   ],
 });
@@ -140,13 +167,14 @@ const agentReply = signed(agent, {
   }),
   created_at: 70,
   tags: [
-    ["h", "one"],
+    ["h", channelOne],
     ["e", roots[0].id, "", "reply"],
   ],
 });
 const events = [...roots, ...replies, exactReaction, agentReply];
 const report = {
   pages: [] as string[],
+  filters: [] as ReadFilter[],
   signings: [] as string[],
   publications: [] as RelayEvent[],
   links: [] as string[],
@@ -154,8 +182,19 @@ const report = {
   exactReplyId: exactReply.id,
 };
 let incoming = (_events: readonly RelayEvent[]) => {};
+let established = (_channels: string) => {};
+let holdRepair: (() => void) | undefined;
+let repairGate = false;
+let failRepair = false;
 const rejected = new Set<string>();
+let releaseOlderPage: (() => void) | undefined;
+let holdOlderPage = false;
+let failOlderPages = 0;
+let failLegacyContinuation = new URLSearchParams(location.search).has(
+  "failLegacyContinuation",
+);
 const owner = createRelaySession({
+  scope: "https://fixture.test",
   viewer: viewer.pubkey,
   relayAuthor: relay.pubkey,
   media: (url) => {
@@ -167,53 +206,151 @@ const owner = createRelaySession({
   },
   subscribe(callbacks) {
     incoming = callbacks.receive;
+    established = callbacks.established;
     return { update() {}, retry() {}, dispose() {} };
   },
   async query(filters) {
-    return filters.flatMap((filter) => {
-      if (filter.kinds?.includes(39002) || filter.kinds?.includes(39000))
-        return [
-          roster(relay, "one", [viewer.pubkey]),
-          metadata(relay, "one", "One"),
-          roster(relay, "two", [viewer.pubkey]),
-          metadata(relay, "two", "Two"),
-        ];
-      if (filter.kinds?.includes(0))
-        return [
-          profile(viewer, { name: "Fixture Reader" }),
-          profile(agent, { name: "Agent Fixture" }),
-        ].filter((event) => filter.authors?.includes(event.pubkey));
-      if (filter.ids)
-        return events.filter((event) => filter.ids?.includes(event.id));
-      if (filter["#e"] && filter.kinds?.includes(7))
-        return events.filter(
-          (event) =>
-            filter.kinds?.includes(event.kind) &&
-            event.tags.some(
-              ([name, value]) => name === "e" && filter["#e"]?.includes(value),
-            ),
-        );
-      if (filter.depth_limit) {
-        const rootId = filter["#e"]?.[0];
-        if (!rootId) throw new Error("Missing fixture thread root");
-        report.pages.push(rootId);
-        return events
-          .filter((event) => {
-            if (threadReference(event)?.rootId !== rootId) return false;
-            return (
-              filter.thread_cursor === undefined ||
-              event.created_at > filter.thread_cursor ||
-              (event.created_at === filter.thread_cursor &&
-                event.id > (filter.thread_cursor_id ?? ""))
+    return (
+      await Promise.all(
+        filters.map(async (filter) => {
+          if (filter.kinds?.includes(39002) || filter.kinds?.includes(39000))
+            return [
+              roster(relay, channelOne, [viewer.pubkey]),
+              metadata(relay, channelOne, "One"),
+              roster(relay, channelTwo, [viewer.pubkey]),
+              metadata(relay, channelTwo, "Two"),
+            ];
+          if (filter.kinds?.includes(0))
+            return [
+              profile(viewer, { name: "Fixture Reader" }),
+              profile(agent, { name: "Agent Fixture" }),
+            ].filter((event) => filter.authors?.includes(event.pubkey));
+          if (filter.ids) {
+            if (repairGate && filter.ids.includes(roots[0].id)) {
+              await new Promise<void>((resolve) => {
+                holdRepair = resolve;
+              });
+              repairGate = false;
+              holdRepair = undefined;
+              if (failRepair) {
+                failRepair = false;
+                throw new Error("Retained range repair failed");
+              }
+            }
+            return events.filter((event) => filter.ids?.includes(event.id));
+          }
+          if (filter["#e"] && filter.kinds?.includes(7))
+            return events.filter(
+              (event) =>
+                filter.kinds?.includes(event.kind) &&
+                event.tags.some(
+                  ([name, value]) =>
+                    name === "e" && filter["#e"]?.includes(value),
+                ),
             );
-          })
-          .sort(
-            (a, b) => a.created_at - b.created_at || a.id.localeCompare(b.id),
-          )
-          .slice(0, filter.limit);
-      }
-      return [];
-    });
+          if (filter.depth_limit) {
+            const rootId = filter["#e"]?.[0];
+            if (!rootId) throw new Error("Missing fixture thread root");
+            report.pages.push(rootId);
+            report.filters.push(filter);
+            if (filter.thread_window) {
+              if (holdOlderPage && filter.until !== undefined) {
+                await new Promise<void>((resolve) => {
+                  releaseOlderPage = resolve;
+                });
+                holdOlderPage = false;
+                releaseOlderPage = undefined;
+              }
+              if (filter.until !== undefined && failOlderPages > 0) {
+                failOlderPages--;
+                throw new Error("Older page failed");
+              }
+              const eligible = events
+                .filter(
+                  (event) =>
+                    threadReference(event)?.rootId === rootId &&
+                    (filter.until === undefined ||
+                      event.created_at < filter.until ||
+                      (event.created_at === filter.until &&
+                        event.id > (filter.before_id ?? ""))),
+                )
+                .sort(
+                  (a, b) =>
+                    b.created_at - a.created_at || a.id.localeCompare(b.id),
+                );
+              const page = eligible.slice(0, filter.limit);
+              const last = page.at(-1);
+              const canonical = JSON.stringify([
+                "tw",
+                1,
+                "older",
+                "fixture.test",
+                viewer.pubkey,
+                filter["#h"]?.[0],
+                rootId,
+                filter.limit,
+                100,
+                [9, 40002],
+                filter.until === undefined
+                  ? null
+                  : [filter.until, filter.before_id],
+                true,
+              ]);
+              const digest = [
+                ...new Uint8Array(
+                  await crypto.subtle.digest(
+                    "SHA-256",
+                    new TextEncoder().encode(canonical),
+                  ),
+                ),
+              ]
+                .map((byte) => byte.toString(16).padStart(2, "0"))
+                .join("");
+              return [
+                ...page,
+                signed(relay, {
+                  kind: 39007,
+                  tags: [
+                    ["d", `tw:1:${digest}`],
+                    ["h", channelOf(roots[0])],
+                    ["e", rootId],
+                  ],
+                  content: JSON.stringify({
+                    version: 1,
+                    direction: "older",
+                    has_more: eligible.length > page.length,
+                    next_cursor:
+                      eligible.length > page.length && last
+                        ? { created_at: last.created_at, id: last.id }
+                        : null,
+                  }),
+                }),
+              ];
+            }
+            if (failLegacyContinuation && filter.thread_cursor !== undefined) {
+              failLegacyContinuation = false;
+              throw new Error("Legacy continuation failed");
+            }
+            return events
+              .filter((event) => {
+                if (threadReference(event)?.rootId !== rootId) return false;
+                return (
+                  filter.thread_cursor === undefined ||
+                  event.created_at > filter.thread_cursor ||
+                  (event.created_at === filter.thread_cursor &&
+                    event.id > (filter.thread_cursor_id ?? ""))
+                );
+              })
+              .sort(
+                (a, b) =>
+                  a.created_at - b.created_at || a.id.localeCompare(b.id),
+              )
+              .slice(0, filter.limit);
+          }
+          return [];
+        }),
+      )
+    ).flat();
   },
   writer: {
     kinds: [5, 7, 9],
@@ -237,6 +374,26 @@ owner.session.channels.ensureList();
 Object.assign(window, {
   messagesFixture: {
     report,
+    holdOlderPage() {
+      holdOlderPage = true;
+    },
+    releaseOlderPage() {
+      releaseOlderPage?.();
+    },
+    failOlderPages(count: number) {
+      failOlderPages = count;
+    },
+    holdReconnectRepair() {
+      repairGate = true;
+      failRepair = true;
+      established(channelOne);
+    },
+    reconnectRepairPending() {
+      return !!holdRepair;
+    },
+    releaseReconnectRepair() {
+      holdRepair?.();
+    },
     async activate() {
       await plugins.retry();
     },
@@ -252,18 +409,18 @@ Object.assign(window, {
               content: JSON.stringify({ content }),
               created_at: 2_000,
               tags: [
-                ["h", "one"],
+                ["h", channelOne],
                 ["e", roots[0].id, "", "reply"],
               ],
             })
-          : message(viewer, "one", content, 2_000, [
+          : message(viewer, channelOne, content, 2_000, [
               ["e", roots[0].id, "", "reply"],
             ]);
       events.push(event);
       incoming([event]);
     },
     live() {
-      const event = message(viewer, "one", "Live reply", 1000, [
+      const event = message(viewer, channelOne, "Live reply", 1000, [
         ["e", roots[0].id, "", "reply"],
       ]);
       events.push(event);
@@ -371,7 +528,7 @@ function Fixture() {
           extensions={extensions}
           session={owner.session}
           scope={scope}
-          channelId="one"
+          channelId={channelOne}
           channelName="one"
           messageId={
             review.url === replyAttachment.url ? exactReply.id : roots[0].id

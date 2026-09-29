@@ -247,7 +247,7 @@ it("focuses search on open and supports clear, Escape, and outside dismissal", a
   const search = screen.getByRole("searchbox", {
     name: "Search community people and agents",
   });
-  expect(search).toHaveFocus();
+  await waitFor(() => expect(search).toHaveFocus());
   await user.type(search, "no matching name");
   expect(screen.getByText("No matching channel members.")).toBeVisible();
   await user.click(
@@ -2035,3 +2035,77 @@ it("names the choice set only while the picker is shown, and qualifies namesakes
   names.dispose();
   t.library.dispose();
 });
+
+it.each([false, true])(
+  "shows agent loading only without retained mention choices (warm=%s)",
+  async (warm) => {
+    const test = setup();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let held = !warm;
+    const read = vi.fn(async () => {
+      if (held) await gate;
+      return {
+        definitions: [],
+        identities: [{ pubkey: test.key, name: "Outside agent" }],
+      };
+    });
+    const library = createAgentLibrary(read);
+    if (warm) await library.queries.refresh();
+    const session = {
+      ...test.session,
+      agentChoices: createAgentChoices({
+        scope: "test",
+        library: library.queries,
+        signal: new AbortController().signal,
+      }),
+    };
+    const view = render(
+      <MentionPicker
+        session={session}
+        scope="test"
+        channelId="parent"
+        disabled={false}
+        inviteAgents
+        select={() => true}
+      />,
+    );
+    try {
+      await userEvent
+        .setup()
+        .click(screen.getByRole("button", { name: "Mention a member" }));
+      if (warm) {
+        await screen.findByRole("button", {
+          name: `Outside agent ${test.key}`,
+        });
+        held = true;
+        act(() => {
+          void session.agentChoices.refresh();
+        });
+      }
+      await waitFor(() => expect(read).toHaveBeenCalledTimes(warm ? 2 : 1));
+      expect(session.agentChoices.snapshot().status).toBe("loading");
+      if (warm) {
+        expect(
+          screen.getByRole("button", { name: `Member ${test.member}` }),
+        ).toBeVisible();
+        expect(screen.queryByText("Loading agents…")).not.toBeInTheDocument();
+      } else expect(screen.getByText("Loading agents…")).toBeVisible();
+      await act(async () => release());
+      await waitFor(() =>
+        expect(session.agentChoices.snapshot().status).toBe("ready"),
+      );
+      expect(
+        screen.getByRole("button", { name: `Outside agent ${test.key}` }),
+      ).toBeEnabled();
+      expect(screen.queryByText("Loading agents…")).not.toBeInTheDocument();
+    } finally {
+      await act(async () => release());
+      view.unmount();
+      library.dispose();
+      test.library.dispose();
+    }
+  },
+);

@@ -40,7 +40,10 @@ test.use({
 test("management Leave restores focus on cancel, holds pending, and completes through the shared sidebar owner", async ({
   page,
   app,
-}) => {
+}, testInfo) => {
+  await page.addInitScript(() =>
+    localStorage.setItem("buzz-appearance.v1", "dark"),
+  );
   const sidebar = await openSettings(page, app);
   const panel = panelFor(page);
   const leave = panel.getByRole("button", {
@@ -48,13 +51,23 @@ test("management Leave restores focus on cancel, holds pending, and completes th
     exact: true,
   });
   await expect(leave).toBeVisible();
+  await expect(leave).toHaveAttribute("data-variant", "subtle");
   await leave.focus();
   await page.keyboard.press("Enter");
   const dialog = dialogFor(page);
   await expect(dialog).toBeVisible();
   await expect(
+    dialog.getByRole("button", { name: "Leave channel", exact: true }),
+  ).toHaveAttribute("data-variant", "prominent");
+  await expect(
     dialog.getByRole("button", { name: "Cancel", exact: true }),
   ).toBeFocused();
+  await expect(
+    dialog.getByRole("button", { name: "Cancel", exact: true }),
+  ).toHaveAttribute("data-variant", "subtle");
+  await dialog.screenshot({
+    path: testInfo.outputPath("leave-confirmation.png"),
+  });
   await page.keyboard.press("Escape");
   await expect(dialog).toHaveCount(0);
   await expect(panel).toBeVisible();

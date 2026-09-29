@@ -1,5 +1,5 @@
 import { test, expect } from "./fixture.mjs";
-import { open } from "./timeline.mjs";
+import { open, settle } from "./timeline.mjs";
 
 test.use({
   productionBroker: true,
@@ -151,12 +151,17 @@ test("message actions reveal, copy, restore focus and reply across responsive la
     panel.locator(`[data-message-id="${broadcast.id}"]`),
   ).toBeFocused();
   await page.getByRole("button", { name: "Close thread", exact: true }).click();
-  for (const width of [900, 390]) {
+  for (const width of [900, 603, 390]) {
     await page.setViewportSize({ width, height: 850 });
     await row.scrollIntoViewIfNeeded();
-    if (width === 900) await row.hover();
-    else await page.mouse.move(0, 0);
+    await page.mouse.move(0, 0);
+    await page.mouse.click(0, 0);
+    await expect(actions).toHaveCSS("opacity", "0");
+    await row.hover();
     await expect(actions).toHaveCSS("opacity", "1");
+    await expect(
+      row.getByRole("button", { name: "Copy link", exact: true }),
+    ).toBeVisible();
     await trigger.click();
     const menu = page.getByRole("menu");
     await expect(menu).toBeVisible();
@@ -294,4 +299,99 @@ test.describe("touch", () => {
       page.getByRole("menuitem", { name: "Copy message", exact: true }),
     ).toBeVisible();
   });
+});
+
+// Native geometry and hit testing protect prose/link access while controls reveal.
+test("narrow timeline continuation actions never cover prose or move adjacent rows", async ({
+  page,
+  app,
+}) => {
+  await page.setViewportSize({ width: 900, height: 950 });
+  await open(page, app);
+  app.append("primary", "alpha", "Start a compact group");
+  const event = app.append(
+    "primary",
+    "alpha",
+    "Read [this reference](https://example.com/reference)",
+  );
+  const next = app.append("primary", "alpha", "Next message");
+  const row = page.locator(
+    `[data-channel-timeline] [data-message-id="${event.id}"]`,
+  );
+  const following = page.locator(
+    `[data-channel-timeline] [data-message-id="${next.id}"]`,
+  );
+  await expect(row.locator('[data-layout="continuation"]')).toBeVisible();
+  await expect(following).toBeVisible();
+  const actions = row.getByRole("group", { name: "Message actions" });
+  const link = row.getByRole("link", { name: /this reference/ });
+  await page.mouse.move(0, 0);
+  await expect(actions).toHaveCSS("opacity", "0");
+  await settle(page);
+  const baseline = await following.boundingBox();
+  for (const mode of ["hover", "focus"]) {
+    if (mode === "hover") await row.hover();
+    else {
+      await page.mouse.move(0, 0);
+      await row.getByRole("button", { name: "More message actions" }).focus();
+    }
+    await expect(actions).toHaveCSS("opacity", "1");
+    const prose = await row.locator("p").first().boundingBox();
+    const toolbar = await actions.boundingBox();
+    expect(toolbar.y + toolbar.height).toBeLessThanOrEqual(prose.y);
+    await expect(actions).toHaveCSS("position", "absolute");
+    expect((await following.boundingBox()).y).toBe(baseline.y);
+    await expect
+      .poll(() =>
+        link.evaluate((node) => {
+          const rect = node.getBoundingClientRect();
+          return node.contains(
+            document.elementFromPoint(
+              rect.x + rect.width / 2,
+              rect.y + rect.height / 2,
+            ),
+          );
+        }),
+      )
+      .toBe(true);
+  }
+});
+
+test("historical single-day DMs and their threads expose dates without hover", async ({
+  page,
+  app,
+}) => {
+  await open(page, app);
+  await page
+    .getByRole("navigation", { name: "Subscribed channels" })
+    .getByRole("button", { name: "Alice Fixture", exact: true })
+    .click();
+  const timeline = page.locator("[data-channel-timeline]");
+  const channel = await timeline.getAttribute("data-channel-timeline");
+  const event = app.append("primary", channel, "Historical message");
+  const row = timeline.locator(`[data-message-id="${event.id}"]`);
+  await expect(row).toBeVisible();
+  const date = await page.evaluate(
+    (seconds) =>
+      new Date(seconds * 1000).toLocaleDateString(undefined, {
+        year: "numeric",
+        weekday: "long",
+        month: "long",
+        day: "numeric",
+      }),
+    event.created_at,
+  );
+  await page.mouse.move(0, 0);
+  await expect(timeline.getByText(date, { exact: true })).toBeVisible();
+  await expect(
+    timeline.getByRole("button", { name: "Load older messages" }),
+  ).toHaveCount(0);
+  const reply = row.getByRole("button", { name: "Reply", exact: true });
+  await reply.focus();
+  await reply.press("Enter");
+  const thread = page.getByRole("complementary", {
+    name: "Thread",
+    exact: true,
+  });
+  await expect(thread.getByText(date, { exact: true })).toBeVisible();
 });

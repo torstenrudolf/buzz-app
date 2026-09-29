@@ -1,3 +1,6 @@
+import { IconButton } from "../shared/design-system/ui/IconButton";
+import { PencilSimpleIcon, XIcon } from "../shared/design-system/icons";
+import { PreferenceRow } from "../shared/design-system/ui/PreferenceRow";
 import { Header, InlineHeader } from "../shared/design-system/ui/Header";
 import {
   useEffect,
@@ -351,76 +354,88 @@ function ShortcutRow({
   }, [listening, row.override]);
   const primary = row.effective[0];
   return (
-    <article
-      className="flex flex-wrap items-center justify-between gap-3 px-1 py-3"
-      aria-labelledby={titleId}
-    >
-      <div className="min-w-0 flex-1 basis-[var(--size-navigator)]">
-        <h3 id={titleId} className="m-0 text-label font-medium">
-          {row.title}
-        </h3>
-        {row.override && (
-          <p className="m-0 text-body-sm text-subtle">Modified</p>
-        )}
-        {sharedWith.length > 0 && (
-          <p className="m-0 text-body-sm text-subtle">
-            Also used by{" "}
-            {sharedWith
-              .map((other) => `${other.title} (${other.owner})`)
-              .join(", ")}
-          </p>
-        )}
-        {notice && (
-          <p
-            id={noticeId}
-            role="alert"
-            className="m-0 text-body-sm text-standard"
-          >
-            {notice.message}
-          </p>
-        )}
-      </div>
-      <div className="actions max-w-full items-center">
-        {listening ? (
-          <KeyCaptureControl
-            apple={apple}
-            label={`New shortcut for ${row.title}`}
-            describedBy={notice ? noticeId : undefined}
-            onCapture={onCapture}
-            onCancel={onCancel}
-          />
-        ) : (
-          primary && <KeyCombo binding={primary} apple={apple} />
-        )}
-        <Button
-          ref={change}
-          type="button"
-          size="sm"
-          aria-label={
-            listening
-              ? `Cancel changing ${row.title}`
-              : `Change shortcut for ${row.title}`
-          }
-          // Keep focus on the listening control so a click here cancels once.
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={listening ? onCancel : onStart}
+    <article aria-labelledby={titleId}>
+      <PreferenceRow
+        title={
+          <h3 id={titleId} className="m-0 text-label-sm">
+            {row.title}
+          </h3>
+        }
+        subtitle={
+          row.override || sharedWith.length > 0 ? (
+            <>
+              {row.override && <span className="block">Modified</span>}
+              {sharedWith.length > 0 && (
+                <span className="block text-subtle">
+                  Also used by{" "}
+                  {sharedWith
+                    .map((other) => `${other.title} (${other.owner})`)
+                    .join(", ")}
+                </span>
+              )}
+            </>
+          ) : undefined
+        }
+        trailing={
+          <>
+            {listening ? (
+              <KeyCaptureControl
+                apple={apple}
+                label={`New shortcut for ${row.title}`}
+                describedBy={notice ? noticeId : undefined}
+                onCapture={onCapture}
+                onCancel={onCancel}
+              />
+            ) : (
+              primary && <KeyCombo binding={primary} apple={apple} />
+            )}
+            <IconButton
+              variant="ghost"
+              icon={
+                listening ? (
+                  <XIcon size={16} aria-hidden="true" />
+                ) : (
+                  <PencilSimpleIcon size={16} aria-hidden="true" />
+                )
+              }
+              title={listening ? "Cancel" : "Change shortcut"}
+              ref={change}
+              type="button"
+              size="sm"
+              aria-label={
+                listening
+                  ? `Cancel changing ${row.title}`
+                  : `Change shortcut for ${row.title}`
+              }
+              // Keep focus on the listening control so a click here cancels once.
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={listening ? onCancel : onStart}
+            />
+            {row.override && !listening && (
+              <Button
+                type="button"
+                size="sm"
+                aria-label={`Reset shortcut for ${row.title}`}
+                onClick={() => {
+                  resetting.current = true;
+                  onReset();
+                }}
+              >
+                Reset
+              </Button>
+            )}
+          </>
+        }
+      />
+      {notice && (
+        <p
+          id={noticeId}
+          role="alert"
+          className="m-0 text-body-sm text-standard"
         >
-          {listening ? "Cancel" : "Change"}
-        </Button>
-        {row.override && !listening && (
-          <Button
-            type="button"
-            size="sm"
-            aria-label={`Reset shortcut for ${row.title}`}
-            onClick={() => {
-              resetting.current = true;
-              onReset();
-            }}
-          >
-            Reset
-          </Button>
-        )}
-      </div>
+          {notice.message}
+        </p>
+      )}
     </article>
   );
 }

@@ -48,6 +48,14 @@ pub struct Candidate {
     pub relay_url: String,
     pub name: String,
 }
+/// Reviewed text only. Never project legacy environment, commands, arguments,
+/// credentials, paths, owner authorization or retained source records for cloning.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CloneSettings {
+    pub name: String,
+    pub system_prompt: String,
+}
 #[derive(Clone)]
 struct Pending {
     preview: ImportPreview,
@@ -69,6 +77,30 @@ struct Source {
     digest: String,
 }
 impl Imports {
+    pub fn clone_settings(
+        source_kind: LegacySource,
+        app_data_parent: PathBuf,
+        pubkey: &str,
+    ) -> Result<CloneSettings> {
+        if !canonical_key(pubkey) {
+            return Err("Invalid source identity".into());
+        }
+        let data = read_source(&app_data_parent.join(source_kind.app_directory()))?;
+        let records: Vec<_> = data
+            .records
+            .iter()
+            .filter(|record| string(record, "pubkey") == pubkey)
+            .collect();
+        if records.len() != 1 {
+            return Err("Choose one existing source identity".into());
+        }
+        let record = records[0];
+        let definition = source_definition(&data, record)?;
+        Ok(CloneSettings {
+            name: string(record, "name").into(),
+            system_prompt: string(definition, "system_prompt").into(),
+        })
+    }
     pub fn discard(&mut self) {
         self.pending = None;
     }
@@ -82,7 +114,12 @@ impl Imports {
         destination: &str,
     ) -> Result<ImportPreview> {
         self.pending = None;
-        let relay = canonical_relay(destination)?;
+        // Browsing local files needs no destination and grants no import authority.
+        let relay = if destination.is_empty() {
+            String::new()
+        } else {
+            canonical_relay(destination)?
+        };
         let source = app_data_parent.join(source_kind.app_directory());
         let data = read_source(&source)?;
         let mut candidates = Vec::new();
@@ -110,7 +147,7 @@ impl Imports {
             .sequence
             .checked_add(1)
             .ok_or("Import preview exhausted")?;
-        let preview = ImportPreview {
+        let mut preview = ImportPreview {
             token: format!("{}-{}", self.sequence, data.digest),
             source_path: source.join("agents/managed-agents.json").display().to_string(),
             candidates,
@@ -121,6 +158,13 @@ impl Imports {
                 "This copies selected identities and resolved settings; old Buzz remains unchanged.".into(),
             ],
         };
+        if relay.is_empty() {
+            preview.token.clear();
+            preview.warnings = vec![
+                "Local identities only. Choose a destination before reviewing an import.".into(),
+            ];
+            return Ok(preview);
+        }
         self.pending = Some(Pending {
             preview: preview.clone(),
             source,
@@ -151,6 +195,7 @@ impl Imports {
         if data.digest != pending.digest {
             return Err("Source changed after preview; preview it again".into());
         }
+        let reservation = store.reserve_import()?;
         let existing = store.agents()?;
         let mut agents = Vec::new();
         let mut repairs = Vec::new();
@@ -184,11 +229,15 @@ impl Imports {
                 ));
                 continue;
             }
+            if existing.iter().any(|a| a.pubkey == candidate.pubkey) {
+                return Err("Selected identity is already imported".into());
+            }
             let agent = resolve(&data, record, &pending.workspace, &candidate.relay_url)?;
             agent.validate()?;
             agents.push((agent, string(record, "private_key_nsec").to_owned()));
         }
         Ok(PreparedImport {
+            reservation,
             agents,
             repairs,
             source_kind: pending.source_kind,
@@ -212,6 +261,7 @@ impl Imports {
 /// Native-only import plan; never serialized. Credential operations can happen
 /// outside the controller mutex. The source snapshot is copied, never mutated.
 pub struct PreparedImport {
+    reservation: crate::store::ImportReservation,
     agents: Vec<(Agent, String)>,
     repairs: Vec<(String, u64, String)>,
     source_kind: LegacySource,
@@ -219,6 +269,7 @@ pub struct PreparedImport {
     digest: String,
 }
 pub struct CredentialedImport {
+    reservation: crate::store::ImportReservation,
     agents: Vec<Agent>,
     repairs: Vec<(String, u64, String)>,
     source: PathBuf,
@@ -250,6 +301,7 @@ impl PreparedImport {
             }
         }
         Ok(CredentialedImport {
+            reservation: self.reservation,
             agents: agents.into_iter().map(|(a, _)| a).collect(),
             repairs: self.repairs,
             source: self.source,
@@ -259,10 +311,30 @@ impl PreparedImport {
 }
 impl CredentialedImport {
     pub fn commit(self, store: &mut Store) -> Result<()> {
+        if !self.reservation.belongs_to(store) {
+            return Err("Import belongs to another agent store".into());
+        }
         if read_source(&self.source)?.digest != self.digest {
             return Err("Source changed during credential access; preview again".into());
         }
-        store.import(self.agents, self.repairs)
+        let existing = store.agents()?;
+        if self
+            .agents
+            .iter()
+            .any(|incoming| existing.iter().any(|saved| saved.pubkey == incoming.pubkey))
+        {
+            return Err("Selected identity is already imported".into());
+        }
+        let agents = self
+            .agents
+            .into_iter()
+            .map(|mut agent| {
+                agent.extra.insert("configured".into(), Value::Bool(true));
+                agent.enabled = false;
+                agent
+            })
+            .collect();
+        store.import(agents, self.repairs)
     }
 }
 fn string<'a>(value: &'a Value, key: &str) -> &'a str {
@@ -275,8 +347,8 @@ fn object(value: &Value) -> Result<BTreeMap<String, String>> {
     serde_json::from_value(value.clone())
         .map_err(|_| "Source environment must contain string values".into())
 }
-fn resolve(data: &Source, record: &Value, workspace: &Path, destination: &str) -> Result<Agent> {
-    let definition = if string(record, "persona_id").is_empty() {
+fn source_definition<'a>(data: &'a Source, record: &'a Value) -> Result<&'a Value> {
+    Ok(if string(record, "persona_id").is_empty() {
         record
     } else {
         data.records
@@ -285,7 +357,10 @@ fn resolve(data: &Source, record: &Value, workspace: &Path, destination: &str) -
                 string(r, "pubkey").is_empty() && string(r, "slug") == string(record, "persona_id")
             })
             .ok_or("Linked agent definition is missing; source left unchanged")?
-    };
+    })
+}
+fn resolve(data: &Source, record: &Value, workspace: &Path, destination: &str) -> Result<Agent> {
+    let definition = source_definition(data, record)?;
     let fallback = |key| {
         let selected = string(definition, key);
         if selected.trim().is_empty() {
@@ -352,6 +427,8 @@ fn resolve(data: &Source, record: &Value, workspace: &Path, destination: &str) -
         relay_url,
         name: string(record, "name").into(),
         system_prompt: string(definition, "system_prompt").into(),
+        session_policy: None,
+        session_policy_inherit: false,
         workspace: workspace.display().to_string(),
         harness: HarnessEdit {
             databricks: None,

@@ -568,7 +568,7 @@ function ReviewComments({
         </strong>
         <span>{replies.length}</span>
       </div>
-      {replies.map((row) => (
+      {replies.map((row, index) => (
         <div
           key={row.id}
           data-review-comment={row.id}
@@ -584,7 +584,12 @@ function ReviewComments({
             agentPubkeys={agentPubkeys}
             media={session.media}
             onOpenLink={() => false}
-            day={false}
+            day={
+              index === 0 ||
+              new Date(
+                (replies[index - 1]?.createdAt ?? 0) * 1000,
+              ).toDateString() !== new Date(row.createdAt * 1000).toDateString()
+            }
             retry={session.messages.retry}
             onOpenMediaReview={(_rowId, attachment, seconds) =>
               selectAttachment(attachment, seconds)

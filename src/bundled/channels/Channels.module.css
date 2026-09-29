@@ -45,6 +45,15 @@
   --sidenav-emoji-size: 13px;
   padding-inline: var(--sidebar-padding) var(--sidebar-padding-end);
 }
+.sidebarScroll {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  /* Keep row focus outlines inside the scrollport without shifting content. */
+  margin-inline: calc(-1 * var(--sidebar-padding))
+    calc(-1 * var(--sidebar-padding-end));
+  padding: 0 var(--sidebar-padding-end) var(--space-1) var(--sidebar-padding);
+}
 .sidebarBrand {
   height: var(--space-6);
   display: flex;
@@ -159,6 +168,9 @@
   min-width: 0;
   box-sizing: border-box;
   overflow-y: auto;
+  /* Paint positioned rows with the scrolled contents; otherwise WebKit gives
+     each row a proxy layer that lags behind fast scrolls. */
+  isolation: isolate;
   padding-block: var(--sidebar-padding);
   --channel-row-fill-start: var(--space-1);
   /* The scroll frame/list extend 6px beyond the panel content box so the native
@@ -673,14 +685,13 @@
   letter-spacing: var(--text-caption--letter-spacing);
 }
 .activityList {
+  /* Follow the popup's inner curve after its list inset and 1px border. */
+  --radius-row: calc(var(--radius-panel) - var(--space-1) - 1px);
   max-height: 360px;
   overflow-y: auto;
 }
 .activityItem {
   width: 100%;
-}
-.activityItem + .activityItem {
-  border-top: 1px solid var(--border-standard);
 }
 .activityAvatar {
   width: 30px;
@@ -848,4 +859,20 @@
 .sectionSortAction {
   flex-shrink: 0;
   margin-block: calc(-1 * var(--space-1));
+}
+
+.settingsDescription {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.detailsEditor {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.detailsLabel {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
 }

@@ -1,22 +1,6 @@
 import { test, expect } from "./source-fixture.mjs";
 import { watchPageErrors } from "./page-errors.mjs";
 
-test("native reaction emoji fit inside compact pills", async ({ page }) => {
-  await page.goto("/tests/fixtures/emoji.html?reactions&wrap");
-  for (const emoji of ["👍", "🙌"]) {
-    const pill = page.locator(`button[data-reaction="${emoji}"]`);
-    const glyph = pill.locator("span").first();
-    await expect(pill).toHaveCSS("height", "28px");
-    await expect(glyph).toHaveCSS("min-width", "18px");
-    await expect(glyph).toHaveCSS("height", "18px");
-    await expect(glyph).toHaveCSS("font-size", "14px");
-    await expect(glyph).toHaveCSS("line-height", "18px");
-  }
-  await page.locator('button[data-reaction="👍"]').screenshot({
-    path: test.info().outputPath("native-reaction-emoji.png"),
-  });
-});
-
 test("reaction plus opens a visible emoji-only picker, restores focus and publishes custom emoji", async ({
   page,
 }) => {

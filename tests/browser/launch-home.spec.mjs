@@ -105,7 +105,11 @@ test("Channels stays enabled despite saved disabled settings and has no switch",
   await page.goto(address(app.origin, settings));
   await page.getByRole("button", { name: "Plugins", exact: true }).click();
   await expect(
-    page.getByRole("heading", { name: "Channels", exact: true }),
+    page
+      .getByRole("region", { name: "Plugins", exact: true })
+      .getByRole("article")
+      .filter({ has: page.getByText("Channels", { exact: true }) })
+      .getByText("Required", { exact: true }),
   ).toBeVisible();
   await expect(
     page.getByRole("switch", { name: "Enable Channels", exact: true }),
@@ -130,7 +134,11 @@ test("Channels stays enabled despite saved disabled settings and has no switch",
   await page.goto(address(app.origin, settings));
   await page.getByRole("button", { name: "Plugins", exact: true }).click();
   await expect(
-    page.getByRole("heading", { name: "Channels", exact: true }),
+    page
+      .getByRole("region", { name: "Plugins", exact: true })
+      .getByRole("article")
+      .filter({ has: page.getByText("Channels", { exact: true }) })
+      .getByText("Required", { exact: true }),
   ).toBeVisible();
   await expect(
     page.getByRole("switch", { name: "Enable Channels", exact: true }),

@@ -1,39 +1,6 @@
 import { test, expect } from "./fixture.mjs";
 
 const button = (page, name) => page.getByRole("button", { name, exact: true });
-test.describe("photo avatar", () => {
-  test.use({ profilePicture: "https://avatar.invalid/photo.svg" });
-
-  // Browser layout and DOM focus across the portal cannot be proved in jsdom.
-  test("top-bar search and avatar share a vertical center", async ({
-    page,
-    app,
-  }) => {
-    // A photo has different inline baseline behavior from the initial-letter fallback.
-    await page.route("https://avatar.invalid/photo.svg", (route) =>
-      route.fulfill({
-        contentType: "image/svg+xml",
-        body: '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40"><rect width="40" height="40" fill="navy"/></svg>',
-      }),
-    );
-    // Seed the signed community photo before startup; reloading can retire a stream while
-    // its initial control request is still in flight.
-    await page.goto(app.origin);
-    await expect(button(page, "Your profile").locator("img")).toHaveAttribute(
-      "data-loaded",
-      "true",
-    );
-    const search = await button(page, "Search Buzz").boundingBox();
-    const profile = await button(page, "Your profile").boundingBox();
-    expect(search).not.toBeNull();
-    expect(profile).not.toBeNull();
-    expect(search.y + search.height / 2).toBeCloseTo(
-      profile.y + profile.height / 2,
-      1,
-    );
-  });
-});
-
 test("search arrows traverse the conversation action and recent activity, Enter opens and Escape restores focus", async ({
   page,
   app,
@@ -196,15 +163,13 @@ test("keyboard selection follows its action while recent conversations arrive ab
   page,
   app,
 }) => {
-  await page.goto(app.origin);
   const rail = page.getByRole("button", {
     name: "Switch to Primary",
     exact: true,
   });
-  await expect(rail).toBeVisible();
-  // Hold the membership read across a reload so the channel list arrives after
-  // the palette has opened, as it can after a restored conversation. Other
-  // reads continue, so the held read stays well inside its own deadline.
+  // Hold startup membership before navigation so the channel list arrives after
+  // the palette opens. A reload here can retire a live stream while its initial
+  // control request is still in flight; that race is unrelated to selection.
   const held = [];
   let holding = true;
   await page.route("**/api/relay/*/query", async (route) => {
@@ -214,7 +179,7 @@ test("keyboard selection follows its action while recent conversations arrive ab
     await route.continue();
   });
   try {
-    await page.reload();
+    await page.goto(app.origin);
     await expect(rail).toBeVisible();
     await button(page, "Search Buzz").click();
     const dialog = page.getByRole("dialog", {

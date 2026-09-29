@@ -74,10 +74,13 @@ for (const cachedStartup of [false, true]) {
           .poll(() => sidebar.locator("[data-channel-id]").count())
           .toBeGreaterThan(100);
         await expect.poll(() => pendingRoutes.length).toBeGreaterThan(0);
-        if (!cachedStartup)
-          await expect(
-            page.getByText("Updating sidebar details…", { exact: true }),
-          ).toBeVisible();
+        const panel = page.getByRole("complementary", {
+          name: "Channel sidebar",
+        });
+        await expect(panel).toHaveAttribute("aria-busy", "true");
+        await expect(
+          page.getByText("Updating sidebar details…", { exact: true }),
+        ).toHaveCount(0);
         // Device preferences now restore the saved position before the held
         // network refresh. Subsequent user intent must still win over that refresh.
         expect(await sidebar.evaluate((element) => element.scrollTop)).toBe(
@@ -114,6 +117,7 @@ for (const cachedStartup of [false, true]) {
             .poll(() => sidebar.evaluate((element) => element.scrollTop))
             .toBe(0);
         }
+        const beforeRefresh = await sidebar.boundingBox();
         const refreshed = page.waitForResponse(
           (response) =>
             response.url().endsWith("/api/relay/primary/sidebar-preferences") &&
@@ -121,16 +125,19 @@ for (const cachedStartup of [false, true]) {
         );
         release();
         await refreshed;
-        await expect(
-          page.getByText("Updating sidebar details…", { exact: true }),
-        ).toBeHidden();
-        expect(await sidebar.evaluate((element) => element.scrollTop)).toBe(
-          action === "untouched"
-            ? 900
-            : action === "returned to top"
-              ? 0
-              : 1800,
-        );
+        // DOM settlement follows preference application and its layout effects;
+        // the HTTP response alone is not a restoration barrier.
+        await expect(panel).not.toHaveAttribute("aria-busy", "true");
+        await expect
+          .poll(() => sidebar.evaluate((element) => element.scrollTop))
+          .toBe(
+            action === "untouched"
+              ? 900
+              : action === "returned to top"
+                ? 0
+                : 1800,
+          );
+        expect(await sidebar.boundingBox()).toEqual(beforeRefresh);
       } finally {
         release();
         await Promise.all(pendingRoutes);

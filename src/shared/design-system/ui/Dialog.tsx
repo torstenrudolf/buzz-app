@@ -2,6 +2,7 @@ import { Dialog as BaseDialog } from "@base-ui/react/dialog";
 import { XIcon } from "../icons";
 import { useState, type ComponentProps, type ReactNode } from "react";
 import { IconButton } from "./IconButton";
+import { useFinalFocusUnlessMoved } from "./finalFocus";
 
 type PopupProps = ComponentProps<typeof BaseDialog.Popup>;
 export type DialogProps = {
@@ -56,6 +57,7 @@ export function Dialog({
   finalFocus,
 }: DialogProps) {
   const [instantClose, setInstantClose] = useState(false);
+  const focus = useFinalFocusUnlessMoved(finalFocus, undefined);
   const transition =
     motion === "none" || (!open && instantClose) ? "none" : "default";
   return (
@@ -93,7 +95,8 @@ export function Dialog({
           data-motion={transition}
           aria-modal="true"
           initialFocus={initialFocus}
-          finalFocus={finalFocus}
+          ref={focus.ref}
+          finalFocus={focus.finalFocus}
         >
           <header className="buzz-dialog-header">
             <div className="buzz-dialog-heading">

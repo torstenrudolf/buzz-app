@@ -42,6 +42,9 @@ function fixture(t) {
   mkdirSync(emptyHooks);
   git("init", "--initial-branch=main", main);
   git("-C", main, "config", "core.hooksPath", emptyHooks);
+  // The fixture commit must not detach `maintenance run --auto`; its
+  // worktree-prune task can delete the linked worktree's half-built gitdir.
+  git("-C", main, "config", "maintenance.auto", "false");
   git(
     "-C",
     main,

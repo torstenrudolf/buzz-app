@@ -85,6 +85,7 @@ function relay(
 ) {
   const read = vi.fn(async () => events);
   const session = {
+    relayAuthor: relayKey,
     read,
     viewer,
     media: () => undefined,
@@ -141,9 +142,7 @@ it("gates administration to owners and admins by the verified roster", async () 
     [{ kinds: [13534], authors: [relayKey], limit: 1 }],
     expect.objectContaining({ fresh: true }),
   );
-  expect(
-    screen.queryByRole("button", { name: "Invite to community" }),
-  ).toBeNull();
+  expect(screen.queryByRole("button", { name: "Invite members" })).toBeNull();
 });
 
 it("treats a roster signed by anyone else as unavailable", async () => {
@@ -176,7 +175,7 @@ it("mints a bounded invite and surfaces relay refusals", async () => {
   const { relay: data } = relay(admin);
   render(<CommunityAdmin relay={data} active={() => true} />);
   await user.click(
-    await screen.findByRole("button", { name: "Invite to community" }),
+    await screen.findByRole("button", { name: "Invite members" }),
   );
   // Opening the dialog creates the link with the default settings.
   expect(
@@ -185,13 +184,12 @@ it("mints a bounded invite and surfaces relay refusals", async () => {
   expect(calls.filter((c) => c.route === "invite")).toEqual([
     { route: "invite", body: { ttl_secs: 3 * 24 * 60 * 60, max_uses: null } },
   ]);
-  // Admins cannot grant admin, so a selected person has no role choice.
+  // Admins cannot grant admin, so direct addition has no role choice.
   await user.type(
-    screen.getByRole("combobox", { name: "Search people or paste an npub" }),
+    screen.getByRole("textbox", { name: "Public identity" }),
     "3".repeat(64),
   );
-  await user.click(await screen.findByRole("option", { name: /Public key/ }));
-  expect(screen.getByRole("button", { name: "Invite" })).toBeEnabled();
+  expect(screen.getByRole("button", { name: "Add member" })).toBeEnabled();
   expect(
     screen.queryByRole("button", { name: "Choose member role" }),
   ).toBeNull();
@@ -277,9 +275,7 @@ it("keeps an accepted removal when the refresh fails and retries read-only", asy
   expect(screen.queryAllByRole("button", { name: /^Actions for / })).toEqual(
     [],
   );
-  expect(
-    screen.queryByRole("button", { name: "Invite to community" }),
-  ).toBeNull();
+  expect(screen.queryByRole("button", { name: "Invite members" })).toBeNull();
   read.mockResolvedValueOnce([
     snapshot([
       ["member", owner, "owner"],
@@ -310,7 +306,7 @@ it("picks up a promotion made elsewhere when refreshed", async () => {
   ]);
   await user.click(screen.getByRole("button", { name: "Refresh" }));
   expect(
-    await screen.findByRole("button", { name: "Invite to community" }),
+    await screen.findByRole("button", { name: "Invite members" }),
   ).toBeVisible();
 });
 
@@ -325,7 +321,7 @@ it("recovers from an initial read failure on retry", async () => {
   );
   await user.click(screen.getByRole("button", { name: "Retry" }));
   expect(
-    await screen.findByRole("button", { name: "Invite to community" }),
+    await screen.findByRole("button", { name: "Invite members" }),
   ).toBeVisible();
   expect(screen.queryByRole("alert")).toBeNull();
 });
@@ -390,28 +386,30 @@ it("locks an open invite dialog after an accepted add whose refresh fails", asyn
   const { relay: data, read } = relay(owner);
   render(<CommunityAdmin relay={data} active={() => true} />);
   await user.click(
-    await screen.findByRole("button", { name: "Invite to community" }),
+    await screen.findByRole("button", { name: "Invite members" }),
   );
   const dialog = await screen.findByRole("dialog");
   await within(dialog).findByDisplayValue("https://primary.example/invite/abc");
   read.mockRejectedValueOnce(new Error("relay unavailable"));
-  // Selecting a person replaces the search field, so look it up each time.
+  // The field resets after a confirmed direct addition.
   const search = () =>
-    within(dialog).getByRole("combobox", {
-      name: "Search people or paste an npub",
+    within(dialog).getByRole("textbox", {
+      name: "Public identity",
     });
   await user.type(search(), "3".repeat(64));
-  await user.click(await screen.findByRole("option", { name: /Public key/ }));
-  await user.click(within(dialog).getByRole("button", { name: "Invite" }));
-  expect(await within(dialog).findByText("Member added.")).toBeVisible();
+  await user.click(within(dialog).getByRole("button", { name: "Add member" }));
+  expect(
+    await within(dialog).findByText("Member added directly."),
+  ).toBeVisible();
   expect(
     await within(dialog).findByText(
       "The member list is out of date. Retry before making changes.",
     ),
   ).toBeVisible();
   await user.type(search(), "4".repeat(64));
-  await user.click(await screen.findByRole("option", { name: /Public key/ }));
-  expect(within(dialog).getByRole("button", { name: "Invite" })).toBeDisabled();
+  expect(
+    within(dialog).getByRole("button", { name: "Add member" }),
+  ).toBeDisabled();
   expect(
     within(dialog).getByRole("button", { name: "Choose maximum invite uses" }),
   ).toBeDisabled();
@@ -421,7 +419,7 @@ it("locks an open invite dialog after an accepted add whose refresh fails", asyn
   await user.click(within(dialog).getByRole("button", { name: "Retry" }));
   await waitFor(() =>
     expect(
-      within(dialog).getByRole("button", { name: "Invite" }),
+      within(dialog).getByRole("button", { name: "Add member" }),
     ).toBeEnabled(),
   );
   expect(calls.filter((c) => c.route === "member")).toHaveLength(1);
@@ -485,10 +483,8 @@ it.each([
   },
 );
 
-it("shows a distinguishing key for every invite choice and the selected chip", async () => {
+it("accepts only an exact identity and never searches the people directory", async () => {
   const user = userEvent.setup();
-  const carolA = "c".repeat(64);
-  const carolB = "d".repeat(64);
   const calls = broker({
     member: () => Response.json({ accepted: true, message: "" }),
     invite: () =>
@@ -500,40 +496,37 @@ it("shows a distinguishing key for every invite choice and the selected chip", a
         uses_remaining: null,
       }),
   });
-  const { relay: data } = relay(owner, undefined, new Map(), [
-    { pubkey: carolA, name: "Carol" },
-    { pubkey: carolB, name: "Carol" },
-  ]);
+  const people = vi.fn(async () => ({ people: [], hasMore: false }));
+  const { relay: data } = relay(owner);
+  (
+    data.snapshot().session.directMessages as unknown as {
+      people: typeof people;
+    }
+  ).people = people;
   render(<CommunityAdmin relay={data} active={() => true} />);
   await user.click(
-    await screen.findByRole("button", { name: "Invite to community" }),
+    await screen.findByRole("button", { name: "Invite members" }),
   );
-  const dialog = await screen.findByRole("dialog");
-  await user.type(
-    within(dialog).getByRole("combobox", {
-      name: "Search people or paste an npub",
-    }),
-    "Carol",
-  );
-  const keys = publicKeyLabels([carolA, carolB]);
-  const labelA = `Carol · ${keys.get(carolA)}`;
-  expect(
-    await screen.findByRole("option", { name: `Carol · ${keys.get(carolB)}` }),
-  ).toBeVisible();
-  await user.click(screen.getByRole("option", { name: labelA }));
-  expect(
-    within(dialog).getByRole("button", { name: `Remove ${labelA}` }),
-  ).toBeVisible();
-  await user.click(
-    within(dialog).getByRole("button", { name: "Choose member role" }),
-  );
-  await user.click(await screen.findByRole("menuitemradio", { name: "Admin" }));
-  await user.click(within(dialog).getByRole("button", { name: "Invite" }));
+  const dialog = await screen.findByRole("dialog", {
+    name: "Add or invite people",
+  });
+  const identity = within(dialog).getByRole("textbox", {
+    name: "Public identity",
+  });
+  const add = within(dialog).getByRole("button", { name: "Add member" });
+  await user.type(identity, "Carol");
+  expect(add).toBeDisabled();
+  expect(people).not.toHaveBeenCalled();
+  await user.clear(identity);
+  await user.type(identity, "c".repeat(64));
+  expect(add).toBeEnabled();
+  await user.click(add);
   await waitFor(() =>
-    expect(calls.find((c) => c.route === "member")?.body).toEqual({
+    expect(calls.find((call) => call.route === "member")?.body).toEqual({
       action: "add",
-      pubkey: carolA,
-      role: "admin",
+      pubkey: "c".repeat(64),
+      role: "member",
     }),
   );
+  expect(people).not.toHaveBeenCalled();
 });

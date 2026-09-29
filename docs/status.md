@@ -68,9 +68,10 @@ consent. Owner review decides expansion; this checklist does not authorize it.
 
 ## Known limits and deferred choices
 
-- Thread history currently traverses oldest-first (ten pages of 50). Automatic
-  loading and bottom positioning do not guarantee the newest reply in long threads;
-  a newest-page relay query remains separate work. [Thread behavior](channels.md#viewing-threads).
+- Thread windows open newest-first on supporting relays, capped at ten pages of
+  50. Legacy fallback still traverses oldest-first and cannot guarantee the newest
+  tail in long threads. Empty unsigned probes stay unavailable rather than imply
+  exhaustion. [Thread behavior](channels.md#viewing-threads).
 
 - Cold/oversized geometry may restore an offset while shifting the message being
   read. Exact cold message anchors need a separate product change; see

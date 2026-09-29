@@ -29,12 +29,26 @@ export function useAppNavigation(services: AppServices) {
     services.plugins.subscribe,
     services.plugins.snapshot,
   );
-  const settingsCards = useSyncExternalStore(
-    services.settingsCards.subscribe,
-    services.settingsCards.snapshot,
-  );
+
   const startup = plugins.configuration.status;
   const target = state.entry.target;
+  const settings = target.kind === "settings";
+  const visibility = useSyncExternalStore(
+    services.settingsCards.subscribe,
+    () =>
+      settings && target.section
+        ? services.settingsCards.visibility(target.section)
+        : true,
+  );
+  // Demand belongs to the route, including pending/error presentation and retry.
+  const [retainedAttempt, setRetainedAttempt] =
+    useState<typeof state.attempt>();
+  useLayoutEffect(() => {
+    if (!settings) return;
+    const release = services.settingsCards.retainVisibility();
+    setRetainedAttempt(state.attempt);
+    return release;
+  }, [services, settings, state.attempt]);
   const lastNonSettings = useRef<OpenTarget | undefined>(undefined);
   if (target.kind !== "settings") lastNonSettings.current = target;
   const scope = "scope" in target ? target.scope : undefined;
@@ -52,16 +66,23 @@ export function useAppNavigation(services: AppServices) {
     : undefined;
   let failure: OpenFailure | undefined;
   const legacyHome = target.kind === "home";
-  let waiting = legacyHome;
+  const legacyPage =
+    target.kind === "page" &&
+    pageKey === channelsKey &&
+    target.route?.version === 1 &&
+    (target.route.params === "Inbox" || target.route.params === "Bestie")
+      ? target.route.params.toLowerCase()
+      : undefined;
+  let waiting = legacyHome || legacyPage !== undefined;
   if (scope === null) {
-    waiting = client.status === "loading" || client.selected !== null;
+    waiting ||= client.status === "loading" || client.selected !== null;
   } else if (scope) {
     if (client.status === "loading") waiting = true;
     else if (client.viewer !== scope.viewer) failure = "denied";
     else if (!membership) failure = "denied";
     else if (client.selected !== membership.id) waiting = true;
   }
-  if (pageKey && !failure) {
+  if (pageKey && !failure && !legacyPage) {
     if (startup === "loading") waiting = true;
     else if (
       plugins.activation[
@@ -85,6 +106,8 @@ export function useAppNavigation(services: AppServices) {
   }
   if (
     target.kind === "settings" &&
+    !failure &&
+    !waiting &&
     target.section &&
     ![
       "profile",
@@ -93,22 +116,26 @@ export function useAppNavigation(services: AppServices) {
       "shortcuts",
       "agents",
       "notifications",
+      "updates",
     ].includes(target.section) &&
     !(developerMode && target.section === "developer")
   ) {
     // Plugin cards are addressed by contribution key.
     const section = target.section;
     const owner = section.split("/")[0] ?? "";
-    if (!settingsCards.some((card) => card.key === section)) {
+    if (visibility !== true) {
       if (
+        retainedAttempt !== state.attempt ||
         startup === "loading" ||
-        plugins.activation[owner]?.status === "starting"
+        plugins.activation[owner]?.status === "starting" ||
+        visibility === "pending"
       )
         waiting = true;
       else failure = "unavailable";
     }
   }
-  // Legacy Home targets (including unaddressed startup) resolve to Messages.
+  // Legacy Home resolves to Messages; version-1 placeholder routes resolve to
+  // their standalone plugins. Preserve scope so normalization never grants access.
   // Resolve in place before paint: links and history share one policy.
   // Keep the caller and visit rather than adding a redirect to browser history.
   useLayoutEffect(() => {
@@ -119,7 +146,15 @@ export function useAppNavigation(services: AppServices) {
         pluginId: "buzz.channels",
         pageId: "channels",
       });
-  }, [services, state.attempt, legacyHome]);
+    else if (legacyPage)
+      services.navigationHost.resolve(state.attempt, {
+        version: 1,
+        kind: "page",
+        pluginId: `buzz.${legacyPage}`,
+        pageId: legacyPage,
+        ...(scope !== undefined ? { scope } : {}),
+      });
+  }, [services, state.attempt, legacyHome, legacyPage, scope]);
   const owner = useMemo(
     () => ({ attempt: state.attempt, page, waiting, failure }),
     [state.attempt, page, waiting, failure],
@@ -272,9 +307,11 @@ export function useAppNavigation(services: AppServices) {
       if (
         (pageKey === channelsKey ||
           pageKey === "buzz.projects/projects" ||
-          pageKey === "buzz.agents/agents") &&
+          pageKey === "buzz.agents/agents" ||
+          settings) &&
         !state.ingress &&
-        !failure &&
+        (!failure ||
+          (settings && failure === "unavailable" && visibility === "error")) &&
         !waiting
       ) {
         const status = services.relay.snapshot().status;

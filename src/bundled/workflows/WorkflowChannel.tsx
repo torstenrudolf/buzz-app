@@ -310,7 +310,7 @@ export function WorkflowChannel({
           stopped or cancel active runs.
         </p>
       )}
-      {snapshot.status === "loading" && (
+      {snapshot.status === "loading" && !snapshot.data.items.length && (
         <p role="status">Reading configurations…</p>
       )}
       {snapshot.status === "idle" && (

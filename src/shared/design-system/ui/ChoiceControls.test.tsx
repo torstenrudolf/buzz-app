@@ -338,3 +338,29 @@ it("keeps compact choices labelled and opens by click and keyboard", async () =>
   expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
   expect(trigger).toHaveFocus();
 });
+
+it("defaults combobox queries to exact text while permitting explicit correction", () => {
+  const view = render(
+    <Combobox.Root items={options}>
+      <Combobox.Control label="Query" triggerLabel="Browse" />
+    </Combobox.Root>,
+  );
+  const input = screen.getByRole("combobox", { name: "Query" });
+  expect(input).toHaveAttribute("autocorrect", "off");
+  expect(input).toHaveAttribute("autocapitalize", "none");
+  expect(input).toHaveAttribute("spellcheck", "false");
+  view.rerender(
+    <Combobox.Root items={options}>
+      <Combobox.Control
+        label="Query"
+        triggerLabel="Browse"
+        autoCorrect="on"
+        autoCapitalize="sentences"
+        spellCheck
+      />
+    </Combobox.Root>,
+  );
+  expect(input).toHaveAttribute("autocorrect", "on");
+  expect(input).toHaveAttribute("autocapitalize", "sentences");
+  expect(input).toHaveAttribute("spellcheck", "true");
+});

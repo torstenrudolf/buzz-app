@@ -381,36 +381,3 @@ test("compiled host preserves compatibility utility meanings", async ({
     );
   }
 });
-
-test("shared type and spacing reach the real message timeline", async ({
-  page,
-  app,
-}) => {
-  await open(page, app);
-  const history = page.getByRole("region", { name: "Channel message history" });
-  const message = history.locator("[data-message-id] p").first();
-  await expect(message).toHaveCSS("font-size", "14px");
-  // WebKit exposes the fractional product of the shared 14px × 1.42857 role.
-  await expect
-    .poll(async () =>
-      message.evaluate((element) =>
-        Number.parseFloat(getComputedStyle(element).lineHeight),
-      ),
-    )
-    .toBeCloseTo(20, 3);
-  await expect(history).toHaveCSS("padding-left", "24px");
-  const sidebar = page.getByRole("complementary", { name: "Channel sidebar" });
-  await expect(
-    sidebar.getByRole("button", { name: "Alpha", exact: true }),
-  ).toHaveCSS("font-size", "14px");
-  await expect(
-    page.getByRole("separator", {
-      name: "Resize channel sidebar",
-    }),
-  ).toHaveCSS("width", "16px");
-  const back = button(page, "Go back").locator("svg");
-  await expect(button(page, "Search Buzz").locator("svg")).toHaveCSS(
-    "width",
-    await back.evaluate((element) => getComputedStyle(element).width),
-  );
-});

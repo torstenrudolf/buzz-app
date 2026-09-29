@@ -452,6 +452,14 @@ containment on non-Unix platforms.
   model browsing. A Goose catalog entry does not establish caller EXECUTE permission
   or successful inference. Advanced arguments remain a literal JSON array. Old native hosts
   without this metadata fall back to custom entry.
+- With a Goose provider and model selected, **Test connection** runs one
+  `goose run --text` turn without a saved session or extensions in the agent
+  workspace using the effective draft provider,
+  model, and write-only environment. Buzz requests a ten-token output limit
+  and sets thinking effort to off. Success requires a nonempty assistant text
+  reply in Goose's JSON output; Goose can exit successfully after a provider error.
+  The result does not verify Buzz relay readiness or launch the agent. A failed
+  or timed-out test leaves the draft unchanged.
 - Environment values never arrive in snapshots. Inputs are masked write-only
   patches: missing key preserves; string replaces (including empty); null removes.
   Undo omits a patch again. Successful save clears entered values from UI state.

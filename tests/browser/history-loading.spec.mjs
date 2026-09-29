@@ -9,32 +9,43 @@ test.use({
 const history = (page) =>
   page.getByRole("region", { name: "Channel message history" });
 
-test("automatic history starts before the top in a production broker session", async ({
-  page,
-  app,
-}) => {
-  await open(page, app);
-  await expect(
-    page.getByRole("button", { name: "Retry live updates", exact: true }),
-  ).toHaveCount(0);
-  await history(page).hover();
-  for (let i = 0; i < 100 && !app.pending.length; i++) {
-    await page.mouse.wheel(0, -450);
-    await page.waitForTimeout(40);
-    if (
-      await history(page)
-        .getByRole("button", { name: "Loading older…", exact: true })
-        .count()
-    )
-      break;
-  }
-  await expect.poll(() => app.pending.length).toBe(1);
-  const top = await history(page).evaluate((e) => e.scrollTop);
-  app.report.measurements.push({ automaticRequestTop: top });
-  expect(top).toBeGreaterThan(1000);
-  app.pending.shift().release();
-  await settle(page);
-});
+const tall = test.extend({ tallMessages: true });
+
+tall(
+  "automatic history starts before the top in a production broker session",
+  async ({ page, app }) => {
+    await open(page, app);
+    await expect(
+      page.getByRole("button", { name: "Retry live updates", exact: true }),
+    ).toHaveCount(0);
+    await history(page).hover();
+    for (let i = 0; i < 100 && !app.pending.length; i++) {
+      const before = await history(page).evaluate((e) => e.scrollTop);
+      await page.mouse.wheel(0, -450);
+      // Each wheel step must land (scroll moves or the older page is
+      // requested) before the next one.
+      await expect
+        .poll(
+          async () =>
+            app.pending.length > 0 ||
+            (await history(page).evaluate((e) => e.scrollTop)) < before,
+        )
+        .toBe(true);
+      if (
+        await history(page)
+          .getByRole("button", { name: "Loading older…", exact: true })
+          .count()
+      )
+        break;
+    }
+    await expect.poll(() => app.pending.length).toBe(1);
+    const top = await history(page).evaluate((e) => e.scrollTop);
+    app.report.measurements.push({ automaticRequestTop: top });
+    expect(top).toBeGreaterThan(1000);
+    app.pending.shift().release();
+    await settle(page);
+  },
+);
 
 test("returning to the top continues history loading on wheel without a button", async ({
   page,

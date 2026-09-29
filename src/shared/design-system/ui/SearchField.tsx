@@ -45,6 +45,9 @@ export function SearchField({
   ) : null;
   const input = (
     <Input
+      autoCorrect="off"
+      autoCapitalize="none"
+      spellCheck={false}
       {...inputProps}
       data-buzz-ui=""
       className={variant === "capsule" ? undefined : "buzz-input"}

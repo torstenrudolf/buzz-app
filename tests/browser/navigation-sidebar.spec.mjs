@@ -396,10 +396,10 @@ test("disabling Sessions keeps independent lifecycle actions available", async (
   await page.getByRole("menuitem", { name: "Settings", exact: true }).click();
   await button(page, "Plugins").click();
   const plugins = page.getByRole("region", { name: "Plugins", exact: true });
-  const sessions = plugins.getByRole("article").filter({
-    has: page.getByRole("heading", { name: "Sessions", exact: true }),
+  const toggle = plugins.getByRole("switch", {
+    name: "Enable Sessions",
+    exact: true,
   });
-  const toggle = sessions.getByRole("switch", { name: "Enable Sessions" });
   await toggle.click();
   await expect(toggle).toHaveAttribute("aria-checked", "false");
 

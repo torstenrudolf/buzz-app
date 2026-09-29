@@ -129,6 +129,8 @@ pub fn bundled_manifests() -> Vec<Manifest> {
             .expect("channels manifest"),
         serde_json::from_str(include_str!("../../../src/bundled/github/manifest.json"))
             .expect("github manifest"),
+        serde_json::from_str(include_str!("../../../src/bundled/inbox/manifest.json"))
+            .expect("valid Inbox manifest"),
         serde_json::from_str(include_str!("../../../src/bundled/bestie/manifest.json"))
             .expect("bestie manifest"),
         serde_json::from_str(include_str!("../../../src/bundled/projects/manifest.json"))

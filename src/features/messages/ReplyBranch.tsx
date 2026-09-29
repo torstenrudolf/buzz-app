@@ -1,114 +1,105 @@
-import { Collapsible } from "@base-ui/react/collapsible";
-import { useRef, type ReactNode } from "react";
+import {
+  useCallback,
+  useId,
+  useLayoutEffect,
+  useRef,
+  type ReactNode,
+} from "react";
 import { Button } from "../../shared/design-system/ui/Button";
-import { IconButton } from "../../shared/design-system/ui/IconButton";
-import { MinusIcon } from "../../shared/design-system/icons";
 import styles from "./Messages.module.css";
 
-/** Messaging composition, not a generic tree widget: replies remain readable lists. */
+/** Replies expand once and remain readable lists, not a collapsible tree widget. */
 export function ReplyBranch({
   message,
   layout,
   summary,
   label,
-  hideLabel = "Hide replies",
-  collapsible = true,
+  hasReplies,
   open,
   depth,
-  onOpenChange,
+  onExpand,
   children,
 }: {
-  message: ReactNode | ((collapseControl: ReactNode) => ReactNode);
+  message: ReactNode;
   layout: "thread" | "continuation";
   summary: ReactNode;
   label: string;
-  hideLabel?: string;
-  collapsible?: boolean;
+  hasReplies: boolean;
   open: boolean;
   depth: number;
-  onOpenChange(open: boolean): void;
+  onExpand(): void;
   children: ReactNode;
 }) {
-  const trigger = useRef<HTMLButtonElement>(null);
+  const panelId = useId();
   const panel = useRef<HTMLDivElement>(null);
-  const rowTrigger = useRef<HTMLButtonElement>(null);
-  const collapseControl =
-    open && collapsible ? (
-      <span className={styles.replyBranchRowControl}>
-        <Collapsible.Trigger
-          ref={rowTrigger}
-          render={
-            <IconButton
-              size="sm"
-              aria-label="Collapse this branch"
-              title="Collapse this branch"
-              icon={<MinusIcon />}
-            />
-          }
-          onClick={() =>
-            requestAnimationFrame(() =>
-              trigger.current?.focus({ preventScroll: true }),
-            )
-          }
-        />
-      </span>
-    ) : null;
+  const focusRevealed = useRef(false);
+  useLayoutEffect(() => {
+    if (!open || !focusRevealed.current) return;
+    focusRevealed.current = false;
+    const row = panel.current?.querySelector<HTMLElement>("[data-message-id]");
+    if (row) {
+      row.tabIndex = -1;
+      row.focus({ preventScroll: true });
+      row.scrollIntoView({ block: "nearest" });
+    }
+  }, [open]);
+  const messageRef = useCallback((element: HTMLDivElement | null) => {
+    if (!element) return;
+    return () => {
+      const row = element.querySelector<HTMLElement>("[data-message-id]");
+      if (!row?.contains(document.activeElement)) return;
+      const parent = element.parentElement?.parentElement
+        ?.closest("[data-depth]")
+        ?.querySelector<HTMLElement>("[data-message-id]");
+      const history = element.closest<HTMLElement>(
+        '[aria-label="Thread messages"]',
+      );
+      queueMicrotask(() => {
+        // Exact-link reparenting restores focus during layout; never override it
+        // or a user who has deliberately moved elsewhere.
+        if (row.isConnected || document.activeElement !== document.body) return;
+        const target = parent?.isConnected ? parent : history;
+        if (!target?.isConnected || target.closest("[inert]")) return;
+        if (!target.hasAttribute("tabindex")) target.tabIndex = -1;
+        target.focus({ preventScroll: true });
+      });
+    };
+  }, []);
   return (
-    <Collapsible.Root
-      open={open}
-      onOpenChange={onOpenChange}
+    <div
       className={styles.replyBranch}
       data-depth={Math.min(depth, 6)}
-      data-open={open && collapsible}
+      data-open={open && hasReplies}
       data-layout={layout}
     >
-      <div className={styles.replyBranchMessage}>
-        {typeof message === "function" ? message(collapseControl) : message}
+      <div ref={messageRef} className={styles.replyBranchMessage}>
+        {message}
       </div>
-      {collapsible && (
+      {hasReplies && !open && (
         <div className={styles.replyBranchSummary}>
-          <Collapsible.Trigger
-            ref={trigger}
-            render={(props) => (
-              <Button {...props} variant="link" size="sm">
-                {props.children}
-              </Button>
-            )}
+          <Button
+            variant="link"
+            size="sm"
+            aria-label={label}
+            aria-expanded={false}
+            aria-controls={panelId}
             onClick={() => {
-              if (!open)
-                requestAnimationFrame(() => {
-                  panel.current
-                    ?.querySelector("[data-message-id]")
-                    ?.scrollIntoView({ block: "nearest" });
-                  const rail =
-                    panel.current?.querySelector<HTMLButtonElement>("button");
-                  const target = rail?.getClientRects().length
-                    ? rail
-                    : rowTrigger.current;
-                  if (target?.getClientRects().length)
-                    target.focus({ preventScroll: true });
-                });
+              focusRevealed.current = true;
+              onExpand();
             }}
-            aria-label={open ? hideLabel : label}
           >
-            {open ? hideLabel : summary}
-          </Collapsible.Trigger>
+            {summary}
+          </Button>
         </div>
       )}
-      <Collapsible.Panel ref={panel} className={styles.replyBranchPanel}>
-        {collapsible && (
-          <Collapsible.Trigger
-            className={styles.replyBranchRail}
-            aria-label={hideLabel}
-            onClick={() =>
-              requestAnimationFrame(() =>
-                trigger.current?.focus({ preventScroll: true }),
-              )
-            }
-          />
-        )}
+      <div
+        id={panelId}
+        ref={panel}
+        className={styles.replyBranchPanel}
+        hidden={!open}
+      >
         {children}
-      </Collapsible.Panel>
-    </Collapsible.Root>
+      </div>
+    </div>
   );
 }

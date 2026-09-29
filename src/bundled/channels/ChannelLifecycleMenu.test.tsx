@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import "@testing-library/jest-dom/vitest";
 import { afterEach, expect, it, vi } from "vitest";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -252,11 +253,18 @@ it("confirmation, pending lockout and failed-write recovery stay in the actual d
   const confirm = screen.getByRole("button", {
     name: "Delete channel",
   }) as HTMLButtonElement;
-  expect(confirm.disabled).toBe(true);
-  await user.type(
-    screen.getByRole("textbox", { name: "Channel name confirmation" }),
-    "Fixture",
-  );
+  expect(confirm.getAttribute("data-variant")).toBe("destructive");
+  expect(confirm.disabled).toBe(false);
+  expect(screen.queryByRole("textbox")).toBeNull();
+  expect(
+    screen.getByRole("dialog", { name: "Delete channel: Fixture" }),
+  ).toBeDefined();
+  expect(
+    screen.getByText(
+      "Delete this channel for everyone. You cannot undo this action from Buzz.",
+    ),
+  ).toBeDefined();
+  expect(lifecycle.run).not.toHaveBeenCalled();
   await user.click(confirm);
   await waitFor(() => expect(lifecycle.run).toHaveBeenCalledOnce());
   expect(confirm.disabled).toBe(true);
@@ -301,7 +309,16 @@ it.each(["leave", "hide", "archive"] as const)(
       hide: "Hide conversation",
       archive: "Archive channel",
     }[action];
-    await user.click(screen.getByRole("button", { name: label }));
+    const confirm = screen.getByRole("button", { name: label });
+    expect(confirm.getAttribute("data-variant")).toBe("prominent");
+    if (action === "archive") {
+      expect(
+        screen.getByText(
+          "Archive this channel for everyone and remove it from the sidebar. Messages are kept. A channel administrator can unarchive it later using another supported client; this app cannot restore it yet.",
+        ),
+      ).toBeDefined();
+    }
+    await user.click(confirm);
     expect(lifecycle.run).toHaveBeenCalledWith(
       action,
       "id",
@@ -349,3 +366,58 @@ it("uncertain delivery keeps the dialog recoverable without offering blind resub
   expect(close).toHaveBeenCalledOnce();
   expect(lifecycle.run).toHaveBeenCalledOnce();
 });
+
+it.each([true, false])(
+  "Delete outage preserves sidebar Archive=%s and Leave, then retries",
+  async (canArchive) => {
+    const lifecycle = capability(),
+      choose = vi.fn();
+    lifecycle.load.mockResolvedValueOnce({
+      ...settings,
+      canArchive,
+      canLeave: true,
+      canDelete: false,
+      deleteUnavailable: true,
+    });
+    render(
+      <ContextMenuRoot open>
+        <MenuPopup>
+          <ChannelLifecycleMenu
+            channelId="id"
+            lifecycle={lifecycle}
+            choose={choose}
+            disabled={false}
+            separator
+          />
+        </MenuPopup>
+      </ContextMenuRoot>,
+    );
+    expect(
+      await screen.findByRole("menuitem", {
+        name: "Delete check unavailable",
+      }),
+    ).toHaveAttribute("aria-disabled", "true");
+    expect(
+      screen.getByRole("menuitem", { name: "Leave channel" }),
+    ).not.toHaveAttribute("aria-disabled", "true");
+    expect(!!screen.queryByRole("menuitem", { name: "Archive channel" })).toBe(
+      canArchive,
+    );
+    expect(
+      screen.queryByRole("menuitem", { name: "Delete channel" }),
+    ).toBeNull();
+    lifecycle.load.mockResolvedValue({
+      ...settings,
+      canArchive,
+      canLeave: true,
+    });
+    await userEvent
+      .setup()
+      .click(screen.getByRole("menuitem", { name: "Retry Delete check" }));
+    expect(
+      await screen.findByRole("menuitem", { name: "Delete channel" }),
+    ).not.toHaveAttribute("aria-disabled", "true");
+    expect(screen.queryByText("Delete check unavailable")).toBeNull();
+    expect(choose).not.toHaveBeenCalled();
+  },
+);

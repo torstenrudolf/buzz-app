@@ -19,17 +19,18 @@ const relay = keypair(),
   viewer = keypair();
 const owners: ReturnType<typeof createRelaySession>[] = [];
 let memberships: RelayEvent[];
-const names = new Map<string, RelayEvent>();
+const names = new Map<string, { name: string; event?: RelayEvent }>();
 function named(id: string) {
-  const event = names.get(id);
-  assert.exists(event);
-  return event;
+  const entry = names.get(id);
+  assert.exists(entry);
+  entry.event ??= metadata(relay, id, entry.name);
+  return entry.event;
 }
-// Shared immutable signed fixtures: this suite exercises the real page/capacity boundaries.
+// Preserve real page/capacity boundaries; sign metadata lazily when requested.
 beforeAll(() => {
   memberships = Array.from({ length: 1025 }, (_, i) => {
     const id = `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`;
-    names.set(id, metadata(relay, id, `Channel ${i}`));
+    names.set(id, { name: `Channel ${i}` });
     return roster(relay, id, [viewer.pubkey]);
   }).sort((a, b) => a.id.localeCompare(b.id));
 });
@@ -561,7 +562,7 @@ it("marks metadata retention overflow as partial without discarding membership",
   assert.exists(member);
   const id = tag(member, "d");
   assert.exists(id);
-  h.emit([...names.values()].filter((event) => tag(event, "d") !== id));
+  h.emit([...names.keys()].filter((channelId) => channelId !== id).map(named));
   h.channels.ensureList();
   (await h.next(39002)).respond([member]);
   (await h.next(39000)).respond([named(id)]);

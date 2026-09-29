@@ -193,6 +193,9 @@ test("on-demand model search preserves custom drafts and fences cancellation/con
     await search.press("ArrowDown");
     await search.press("Enter");
     await expect(model).toHaveValue("endpoint-two");
+    // The expanded Advanced section can leave the search above the scrollport.
+    // Bring its anchor into view as a person would before choosing an option.
+    await search.scrollIntoViewIfNeeded();
     await search.fill("my.custom.id");
     await page.getByRole("option", { name: /my.custom.id/ }).click();
     await expect(model).toHaveValue("my.custom.id");

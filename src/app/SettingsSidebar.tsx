@@ -7,6 +7,7 @@ import {
   ArrowLeftIcon,
   ChatCircleIcon,
   UserIcon,
+  UsersIcon,
   WrenchIcon,
 } from "../shared/design-system/icons";
 import channelStyles from "../bundled/channels/Channels.module.css";
@@ -48,7 +49,7 @@ export function SettingsSidebar({
         ? [
             { id: "profile", label: "Profile", icon: UserIcon },
             ...contributed
-              .filter((card) => !card.group)
+              .filter((card) => !card.group && !card.section)
               .map((card) => ({
                 id: card.key,
                 label: card.title,
@@ -57,6 +58,17 @@ export function SettingsSidebar({
           ]
         : [],
     [contributed, selectedCommunity],
+  );
+  const administrationSections: readonly SettingsSection[] = useMemo(
+    () =>
+      contributed
+        .filter((card) => card.section === "administration")
+        .map((card) => ({
+          id: card.key,
+          label: card.title,
+          icon: UsersIcon,
+        })),
+    [contributed],
   );
   const contributedGroups = useMemo(
     () =>
@@ -102,6 +114,11 @@ export function SettingsSidebar({
             {selectedCommunity && (
               <SettingsGroup label={selectedCommunity.name}>
                 {communitySections.map(section)}
+              </SettingsGroup>
+            )}
+            {selectedCommunity && administrationSections.length > 0 && (
+              <SettingsGroup label="Administration">
+                {administrationSections.map(section)}
               </SettingsGroup>
             )}
             {contributedGroups.map((group) => (

@@ -347,3 +347,52 @@ it("opens an ordinary private session with existing agent replies in its main ti
   ]);
   store.dispose();
 });
+
+it("projects explicit visibility and replaces description-only changes without exposing session metadata", async () => {
+  const { store, queries, next } = setup();
+  try {
+    queries.ensureList();
+    next().respond([
+      roster(relay, "work", [viewer.pubkey]),
+      metadata(relay, "work", "Work"),
+    ]);
+    await flush();
+    expect(queries.list().channels[0]?.visibility).toBeUndefined();
+    for (const [index, description] of [
+      "First description",
+      "Second description",
+      "",
+    ].entries()) {
+      const old = queries.list().channels[0];
+      queries.refreshList?.();
+      next().respond([
+        roster(relay, "work", [viewer.pubkey]),
+        metadata(relay, "work", "Work", 1_700_000_001 + index, [
+          ["public"],
+          ["about", description],
+          ["t", "stream"],
+        ]),
+      ]);
+      await flush();
+      expect(queries.list().channels[0]).not.toBe(old);
+      expect(queries.list().channels[0]).toMatchObject({
+        description,
+        visibility: "public",
+      });
+    }
+    queries.refreshList?.();
+    next().respond([
+      roster(relay, "work", [viewer.pubkey]),
+      metadata(relay, "work", "Work", 1_700_000_010, [
+        ["private"],
+        ["about", "Buzz session (buzz.sessions/v1)"],
+        ["t", "stream"],
+      ]),
+    ]);
+    await flush();
+    expect(queries.list().channels[0]?.description).toBeUndefined();
+    expect(queries.list().channels[0]?.channelType).toBe("session");
+  } finally {
+    store.dispose();
+  }
+});

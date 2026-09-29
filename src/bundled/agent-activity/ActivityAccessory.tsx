@@ -13,7 +13,7 @@ import {
 import type { ComposerAccessoryProps } from "../../features/conversation/contracts";
 import { activityTarget } from "../../features/agents/activity-target";
 import { selectProfiles } from "../../features/relay/profile-selection";
-import { Avatar } from "../../shared/design-system/ui/Avatar";
+import { AgentAvatar } from "../../features/agents/AgentAvatar";
 import { usePresenceStatus } from "../../features/presence/react";
 import { NavigationItem } from "../../shared/design-system/ui/NavigationItem";
 import styles from "./ActivityAccessory.module.css";
@@ -154,7 +154,8 @@ function ActivityEntry({
         aria-label={`View activity for ${name} ${agent.slice(0, 12)}${presence === "unknown" ? "" : `, Presence: ${presence}`}`}
         onClick={() => open(target)}
         icon={
-          <Avatar
+          <AgentAvatar
+            working={isWorking}
             src={src}
             alt=""
             fallback={name}

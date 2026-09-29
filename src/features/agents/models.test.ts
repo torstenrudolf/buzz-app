@@ -19,6 +19,7 @@ const request: ModelRequest = {
   edit: {
     name: "Sample",
     systemPrompt: "",
+    sessionPolicy: null,
     workspace: "/tmp",
     harness: {
       command: "buzz-agent",
@@ -123,6 +124,7 @@ it("real control composition keeps Stop and Save independent of model waits and 
   await control.save(fixture.agent.id, fixture.agent.revision, {
     name: "Saved",
     systemPrompt: "",
+    sessionPolicy: null,
     workspace: "/tmp",
     harness: {
       command: "buzz-agent",

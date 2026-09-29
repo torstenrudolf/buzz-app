@@ -40,6 +40,11 @@ export default defineConfig({
     outDir: "dist/design-system",
     emptyOutDir: true,
     sourcemap: false,
-    rollupOptions: { input: "tests/fixtures/design-system.html" },
+    rollupOptions: {
+      input: [
+        "tests/fixtures/design-system.html",
+        "tests/fixtures/design-system/thinking-avatar.html",
+      ],
+    },
   },
 });

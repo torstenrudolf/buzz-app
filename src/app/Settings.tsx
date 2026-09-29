@@ -4,7 +4,8 @@ import { Panel } from "../shared/design-system/ui/Panel";
 import { NavigationItem } from "../shared/design-system/ui/NavigationItem";
 import { NavigationSection } from "../shared/design-system/ui/NavigationSection";
 import { Button } from "../shared/design-system/ui/Button";
-import { Switch } from "../shared/design-system/ui/Switch";
+import { SwitchPreferenceRow } from "../shared/design-system/ui/SwitchPreferenceRow";
+import { PreferenceRow } from "../shared/design-system/ui/PreferenceRow";
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { RecoveryScreen } from "./RecoveryScreen";
 import styles from "./Settings.module.css";
@@ -15,8 +16,10 @@ import {
   BellIcon,
   RobotIcon,
   ChatCircleIcon,
+  UsersIcon,
   KeyboardIcon,
   WrenchIcon,
+  DownloadIcon,
 } from "../shared/design-system/icons/index";
 import type { PluginManager } from "../plugins/manager";
 import type { Communities } from "../features/communities/service";
@@ -36,6 +39,8 @@ import { AgentSettings } from "./AgentSettings";
 import type { AgentControl } from "../features/agents/control";
 import type { SettingsCards } from "../features/settings/service";
 import { OwnedContribution } from "../plugins/OwnedContribution";
+import type { Updates } from "../features/updates/updates";
+import { UpdateSettings } from "../features/updates/UpdateSettings";
 
 export type SettingsSection = {
   id: string;
@@ -52,6 +57,7 @@ export const appSettingsSections: readonly SettingsSection[] = [
   { id: "shortcuts", label: "Shortcuts", icon: KeyboardIcon },
   { id: "agents", label: "Agents", icon: RobotIcon },
   { id: "plugins", label: "Plugins", icon: SquaresFourIcon },
+  { id: "updates", label: "Updates", icon: DownloadIcon },
 ];
 // DEV alone is not enough: packaged desktop builds load a production bundle
 // from tauri://localhost, so the hostname check excludes them too.
@@ -69,6 +75,7 @@ export function Settings({
   shortcutBindings,
   notifications,
   agentControl,
+  updates,
   navigation,
   onSection,
   navigationPane = false,
@@ -82,12 +89,14 @@ export function Settings({
   shortcuts: ShortcutsService;
   shortcutBindings: ShortcutBindings;
   notifications: NotificationsService;
+  updates: Updates;
   navigation?:
     | import("../features/navigation/service").PageNavigation
     | undefined;
   onSection?: (section: string) => void;
   navigationPane?: boolean;
 }) {
+  useEffect(() => cards.retainVisibility(), [cards]);
   const contributed = useSyncExternalStore(cards.subscribe, cards.snapshot);
   const client = useSyncExternalStore(
     communities.subscribe,
@@ -97,7 +106,11 @@ export function Settings({
     (membership) => membership.id === client.selected,
   );
   const communityCards = useMemo(
-    () => contributed.filter((card) => !card.group),
+    () => contributed.filter((card) => !card.group && !card.section),
+    [contributed],
+  );
+  const administrationCards = useMemo(
+    () => contributed.filter((card) => card.section === "administration"),
     [contributed],
   );
   const contributedGroups = useMemo(
@@ -127,6 +140,13 @@ export function Settings({
   const visibleSections = useMemo(
     () => [
       ...communitySections,
+      ...(selectedCommunity
+        ? administrationCards.map((card) => ({
+            id: card.key,
+            label: card.title,
+            icon: UsersIcon,
+          }))
+        : []),
       ...(!selectedCommunity ? personalProfile : []),
       ...contributedGroups.flatMap((group) =>
         group.cards.map((card) => ({
@@ -140,7 +160,12 @@ export function Settings({
         ? [{ id: "developer", label: "Developer", icon: WrenchIcon }]
         : []),
     ],
-    [communitySections, contributedGroups, selectedCommunity],
+    [
+      administrationCards,
+      communitySections,
+      contributedGroups,
+      selectedCommunity,
+    ],
   );
   const defaultSection = selectedCommunity ? "profile" : "appearance";
   const [selected, setSelected] = useState(defaultSection);
@@ -198,6 +223,25 @@ export function Settings({
                         event.currentTarget.focus();
                         if (onSection) onSection(id);
                         else setSelected(id);
+                      }}
+                    />
+                  ))}
+                </NavigationSection>
+              )}
+              {selectedCommunity && administrationCards.length > 0 && (
+                <NavigationSection label="Administration">
+                  {administrationCards.map((card) => (
+                    <NavigationItem
+                      label={card.title}
+                      icon={<UsersIcon aria-hidden="true" size={18} />}
+                      selected={selected === card.key}
+                      type="button"
+                      key={card.key}
+                      aria-current={selected === card.key ? "page" : undefined}
+                      onClick={(event) => {
+                        event.currentTarget.focus();
+                        if (onSection) onSection(card.key);
+                        else setSelected(card.key);
                       }}
                     />
                   ))}
@@ -286,18 +330,53 @@ export function Settings({
                 active={selected === "agents"}
               />
             </div>
+            <div hidden={selected !== "updates"}>
+              <UpdateSettings
+                updates={updates}
+                active={selected === "updates"}
+              />
+            </div>
             {communityCards.map((card) => (
               <div key={card.key} hidden={selected !== card.key}>
                 {selected === card.key && (
                   <OwnedContribution entry={card} registry={cards}>
                     {(entry, active) => {
                       const Card = entry.component;
-                      return <Card active={active} />;
+                      return (
+                        <Card
+                          active={active}
+                          {...(selectedCommunity
+                            ? { community: selectedCommunity }
+                            : {})}
+                        />
+                      );
                     }}
                   </OwnedContribution>
                 )}
               </div>
             ))}
+            {administrationCards.map(
+              (card) =>
+                selected === card.key && (
+                  <OwnedContribution
+                    key={card.key}
+                    entry={card}
+                    registry={cards}
+                  >
+                    {(entry, active) => {
+                      const Card = entry.component;
+                      return (
+                        <Card
+                          active={active}
+                          {...(selectedCommunity
+                            ? { community: selectedCommunity }
+                            : {})}
+                        />
+                      );
+                    }}
+                  </OwnedContribution>
+                ),
+            )}
             {contributedGroups.flatMap((group) =>
               group.cards.map(
                 (card) =>
@@ -388,43 +467,42 @@ export function Settings({
                           ? running.error
                           : null);
                       return (
-                        <article
-                          className="flex flex-wrap items-center justify-between gap-3 px-1 py-3"
-                          key={id}
-                        >
-                          <div className="flex min-w-0 flex-1 items-center gap-3">
-                            <span className="flex size-8 shrink-0 items-center justify-center rounded-xl bg-soft text-muted">
-                              <SquaresFourIcon aria-hidden="true" size={17} />
-                            </span>
-                            <div className="min-w-0">
-                              <h3 className="m-0 text-label font-medium">
-                                {plugin.manifest.name}
-                              </h3>
-                              {failure && (
-                                <p role="alert" className="error">
-                                  {failure}
-                                </p>
-                              )}
-                            </div>
-                          </div>
+                        <article className="py-1" key={id}>
+                          {/* Channels is required and has no enable/disable control. */}
+                          {id === "buzz.channels" ? (
+                            <PreferenceRow
+                              icon={<SquaresFourIcon size={20} />}
+                              title={plugin.manifest.name}
+                              trailing={
+                                <span className="text-body-sm text-subtle">
+                                  Required
+                                </span>
+                              }
+                            />
+                          ) : (
+                            <SwitchPreferenceRow
+                              icon={<SquaresFourIcon size={20} />}
+                              label={plugin.manifest.name}
+                              aria-label={`Enable ${plugin.manifest.name}`}
+                              checked={plugin.enabled}
+                              readOnly={busy}
+                              aria-disabled={busy}
+                              onClick={(event) => event.currentTarget.focus()}
+                              onCheckedChange={() => {
+                                if (busy) return;
+                                void plugins.change(
+                                  plugin.enabled ? "disable" : "enable",
+                                  id,
+                                );
+                              }}
+                            />
+                          )}
+                          {failure && (
+                            <p role="alert" className="error text-body-sm">
+                              {failure}
+                            </p>
+                          )}
                           <div className="actions items-center">
-                            {/* Channels is required and has no enable/disable control. */}
-                            {id !== "buzz.channels" && (
-                              <Switch
-                                aria-label={`Enable ${plugin.manifest.name}`}
-                                checked={plugin.enabled}
-                                readOnly={busy}
-                                aria-disabled={busy}
-                                onClick={(event) => event.currentTarget.focus()}
-                                onCheckedChange={() => {
-                                  if (busy) return;
-                                  void plugins.change(
-                                    plugin.enabled ? "disable" : "enable",
-                                    id,
-                                  );
-                                }}
-                              />
-                            )}
                             {plugin.previous && (
                               <Button
                                 type="button"

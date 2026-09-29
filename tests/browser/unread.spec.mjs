@@ -60,7 +60,15 @@ async function options(page) {
   const opening = (await trigger.getAttribute("aria-expanded")) === "false";
   await trigger.click();
   if (opening) {
-    // Finish the shared Settings permission read before checking diagnostic alerts.
+    // The details and lifecycle readers finish independently. Observe both before
+    // checking diagnostics so a late details alert cannot escape the assertion.
+    await expect(
+      page
+        .getByRole("region", { name: "Edit channel details", exact: true })
+        .getByText(
+          "Only current channel owners and admins can edit these details.",
+        ),
+    ).toBeVisible();
     await expect(
       page.getByRole("button", { name: "Leave channel", exact: true }),
     ).toBeVisible();

@@ -636,6 +636,8 @@ describe("discovery", () => {
       {
         id: "alpha",
         name: "Alpha",
+        description: "",
+        visibility: undefined,
         members: [alice.pubkey, bob.pubkey].sort(),
       },
       { id: "zeta", name: "zeta".slice(0, 8), members: [alice.pubkey] },

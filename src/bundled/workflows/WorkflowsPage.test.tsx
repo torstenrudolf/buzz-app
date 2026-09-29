@@ -12,6 +12,7 @@ import {
 import { afterEach, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { formStateToYaml, yamlToFormState } from "./workflowFormTypes";
+import type { ChannelList } from "../../features/relay/contracts";
 import type { RelaySession } from "../../features/relay/session";
 import { ToastProvider } from "../../shared/design-system/ui/Toast";
 import { WorkflowCommunity } from "./WorkflowsPage";
@@ -740,4 +741,29 @@ it("keeps uncertain deletion locked through durable dismissal and recovers from 
   await user.click(screen.getByRole("button", { name: "Open Message helper" }));
   expect(screen.getByRole("button", { name: "Save changes" })).toBeEnabled();
   expect(screen.queryByText("Deleting…")).toBeNull();
+});
+
+it("does not add a channel-loading banner above retained workflow cards", async () => {
+  const fixture = createWorkflowFixture();
+  const list: ChannelList = {
+    status: "loading",
+    channels: [{ id: fixtureChannel, name: "Fixture channel" }],
+  };
+  const session = {
+    workflows: fixture.capability,
+    channels: {
+      list: () => list,
+      ensureList() {},
+      subscribeList: () => () => {},
+    },
+  } as unknown as RelaySession;
+  render(
+    <ToastProvider>
+      <WorkflowCommunity session={session} viewer={fixtureViewer} />
+    </ToastProvider>,
+  );
+  expect(
+    await screen.findByRole("button", { name: "Open Message helper" }),
+  ).toBeVisible();
+  expect(screen.queryByText("Reading channels…")).toBeNull();
 });

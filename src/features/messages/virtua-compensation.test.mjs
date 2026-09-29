@@ -293,3 +293,87 @@ for (const [name, config, deferred] of [
     c.driver._();
   });
 }
+
+function resizeHarness() {
+  let notify;
+  let nextFrame = 0;
+  const frames = new Map();
+  const view = {
+    ResizeObserver: class {
+      constructor(callback) {
+        notify = callback;
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+    requestAnimationFrame(callback) {
+      const id = nextFrame++;
+      frames.set(id, callback);
+      return id;
+    },
+    cancelAnimationFrame(id) {
+      frames.delete(id);
+    },
+  };
+  const received = [];
+  const observer = new Function(`${core};return C;`)()((entries) =>
+    received.push(entries),
+  );
+  const node = () => ({ ownerDocument: { defaultView: view } });
+  return {
+    observer,
+    received,
+    frames,
+    node,
+    notify(entries) {
+      notify(entries);
+    },
+    flush() {
+      const pending = [...frames.values()];
+      frames.clear();
+      for (const callback of pending) callback();
+    },
+  };
+}
+
+it("delivers the latest resize per target outside native observer delivery", () => {
+  const h = resizeHarness();
+  const first = h.node(),
+    second = h.node();
+  h.observer.A(first);
+  h.observer.A(second);
+  h.notify([{ target: first, contentRect: { height: 40 } }]);
+  const latest = { target: first, contentRect: { height: 60 } };
+  const other = { target: second, contentRect: { height: 80 } };
+  h.notify([latest, other]);
+  expect(h.received).toEqual([]);
+  expect(h.frames.size).toBe(1);
+  h.flush();
+  expect(h.received).toEqual([[latest, other]]);
+  expect(h.frames.size).toBe(0);
+});
+
+it("drops retired targets, cancels pending delivery on disposal, and can remount", () => {
+  const h = resizeHarness();
+  const first = h.node(),
+    second = h.node();
+  h.observer.A(first);
+  h.observer.A(second);
+  const retained = { target: second, contentRect: { height: 80 } };
+  h.notify([{ target: first }, retained]);
+  h.observer.B(first);
+  h.flush();
+  expect(h.received).toEqual([[retained]]);
+  h.notify([retained]);
+  h.observer.X();
+  expect(h.frames.size).toBe(0);
+  h.notify([retained]); // A native callback already queued at disposal is stale.
+  h.flush();
+  expect(h.received).toEqual([[retained]]);
+  h.observer.A(first);
+  const remounted = { target: first, contentRect: { height: 100 } };
+  h.notify([remounted]);
+  h.flush();
+  expect(h.received).toEqual([[retained], [remounted]]);
+});

@@ -1,7 +1,13 @@
+import {
+  canonicalChannel,
+  MissingThreadBounds,
+  threadBounds,
+  type ThreadCursor,
+} from "./thread-window";
 import { threadReference } from "./thread-reference";
 export { threadReference } from "./thread-reference";
 import type { ChannelMessage } from "./contracts";
-import type { EventData, RelayEvent } from "./events";
+import type { EventData, ReadFilter, RelayEvent } from "./events";
 import type { LocalEvents } from "./outbox";
 import type { RelayReader } from "./reader";
 import { byteSize } from "./budget";
@@ -11,15 +17,18 @@ import { shareMessageRows } from "./row-identity";
 
 const AUX = new Set([5, 7, 9005, 40003, 39005, 39006]);
 const PAGE_SIZE = 50;
+const INITIAL_WINDOW_SIZE = 10;
 const MAX_PAGES = 10;
 const MAX_EVENTS = 2000;
 const MAX_BYTES = 4 * 1024 * 1024;
+/** The relay's `thread_window` row allowlist excludes legacy diffs (kind 40008). */
+const STRICT_WINDOW_KINDS = [9, 40002];
 const contentKind = (event: EventData) =>
   [9, 40002, 40008].includes(event.kind);
 const inChannel = (event: EventData, channelId: string) =>
   event.tags.some(([name, value]) => name === "h" && value === channelId);
 /** Relay thread-cursor order (seconds, id); rendered order is `compareMessages`. */
-const compare = (a: EventData, b: EventData) =>
+const compare = (a: ThreadCursor, b: ThreadCursor) =>
   a.created_at - b.created_at || a.id.localeCompare(b.id);
 
 export type ThreadSnapshot = Readonly<{
@@ -30,6 +39,10 @@ export type ThreadSnapshot = Readonly<{
   /** Continuation is possible, not a claim about total thread size or exhaustion. */
   canLoadMore: boolean;
   limited: boolean;
+  /** Older pages are demand-loaded; forward is the legacy bounded walk. */
+  direction?: "older" | "forward";
+  /** The in-flight or failed read, distinct from the traversal direction. */
+  readKind?: "older" | "refresh" | undefined;
   /** Exact navigation target, folded independently of bounded thread traversal. */
   target?: ChannelMessage | undefined;
   targetStatus?: "loading" | "ready" | "unavailable" | "error" | undefined;
@@ -82,7 +95,12 @@ export function createThreadView({
     : undefined;
   let remote: readonly RelayEvent[] = [];
   let staged: readonly RelayEvent[] = [];
-  let cursor: RelayEvent | undefined;
+  // Strict reads require transport-supplied binding authority. Missing scope is
+  // a configuration error, not evidence of an old relay that permits fallback.
+  let mode: "probe" | "older" | "legacy" = canonicalChannel.test(channelId)
+    ? "probe"
+    : "legacy";
+  let cursor: ThreadCursor | undefined;
   let pages = 0;
   let controller: AbortController | undefined;
   let again = false;
@@ -100,6 +118,7 @@ export function createThreadView({
     const rows = events.filter(
       (event) =>
         !AUX.has(event.kind) &&
+        event.kind !== 39007 &&
         inChannel(event, channelId) &&
         (event.id === rootId ||
           (exact && event.id === messageId) ||
@@ -271,6 +290,7 @@ export function createThreadView({
       error: canAccess()
         ? "Thread read interrupted. Refresh to continue."
         : "This channel is no longer available.",
+      readKind: undefined,
     });
   }
   async function run(replace: boolean) {
@@ -295,7 +315,11 @@ export function createThreadView({
     // Repair retains already-verified presentation; only a new/unavailable
     // selection waits for its initial fold. Never unmount a reader on reconnect.
     if (exact && replace && targetStatus !== "ready") targetStatus = "loading";
-    publishStatus({ status: "loading", error: undefined });
+    publishStatus({
+      status: "loading",
+      error: undefined,
+      readKind: replace ? "refresh" : "older",
+    });
     try {
       if (exact && replace) {
         const response = await reader.read(
@@ -380,28 +404,110 @@ export function createThreadView({
         if (!event) throw new Error("The selected message is unavailable.");
         rootId = threadReference(event)?.rootId ?? event.id;
       }
+      const rootFilter: ReadFilter = {
+        ids: [rootId],
+        "#h": [channelId],
+        limit: 1,
+      };
+      let root: readonly RelayEvent[] = [];
+      if (mode !== "legacy") {
+        // Strict requests cannot batch an ID lookup with a window. Admit the
+        // verified root first so channel-less root aux has visibility evidence.
+        // Revalidate once per run, not once per page of a retained-range repair.
+        const rootResponse = await reader.read([rootFilter], {
+          signal: owned.signal,
+        });
+        if (!active()) return;
+        root = admit(rootResponse);
+        if (!active()) return;
+        if (
+          !root.some(
+            (event) =>
+              event.id === rootId &&
+              contentKind(event) &&
+              inChannel(event, channelId) &&
+              !threadReference(event),
+          )
+        ) {
+          rootUnavailable = true;
+          cursor = undefined;
+          pages = 0;
+          publish({ canLoadMore: false });
+          throw new Error("The original thread message is unavailable.");
+        }
+        if (!retain(union(remote, related(root)))) return;
+      }
       let more = false;
       for (let page = 0; page < targetPages; page++) {
-        const response = await reader.read(
-          [
-            { ids: [rootId], "#h": [channelId], limit: 1 },
-            {
-              kinds: [9, 40002, 40008],
-              "#h": [channelId],
-              "#e": [rootId],
-              depth_limit: 100,
-              limit: PAGE_SIZE,
-              include_aux: true,
-              ...(nextCursor
-                ? {
-                    thread_cursor: nextCursor.created_at,
-                    thread_cursor_id: nextCursor.id,
-                  }
-                : {}),
-            },
-          ],
-          { signal: owned.signal },
-        );
+        const filter: ReadFilter = {
+          kinds: [9, 40002, 40008],
+          "#h": [channelId],
+          "#e": [rootId],
+          depth_limit: 100,
+          limit: PAGE_SIZE,
+          include_aux: true,
+        };
+        let response: readonly RelayEvent[];
+        let bounds: ReturnType<typeof threadBounds> | undefined;
+        if (mode !== "legacy") {
+          try {
+            const page = await reader.read(
+              [
+                {
+                  ...filter,
+                  kinds: STRICT_WINDOW_KINDS,
+                  limit: nextPages === 0 ? INITIAL_WINDOW_SIZE : PAGE_SIZE,
+                  thread_window: true,
+                  ...(nextCursor
+                    ? { until: nextCursor.created_at, before_id: nextCursor.id }
+                    : {}),
+                },
+              ],
+              { signal: owned.signal },
+            );
+            if (!active()) return;
+            const bound = page.find((event) => event.kind === 39007);
+            if (!bound) throw new MissingThreadBounds();
+            bounds = threadBounds(bound); // Reader already verified signer and full request binding.
+            mode = "older";
+            response = [
+              ...root,
+              ...page.filter((event) => event.kind !== 39007),
+            ];
+          } catch (error) {
+            if (!active()) return;
+            if (
+              !(error instanceof MissingThreadBounds) ||
+              !error.legacyRows ||
+              mode !== "probe"
+            )
+              throw error;
+            // A 200 without bounds is not support. Probe rows never entered the
+            // session; retry from scratch without a reverse cursor or opt-in.
+            mode = "legacy";
+            nextCursor = undefined;
+            nextPages = 0;
+            response = await reader.read([rootFilter, filter], {
+              signal: owned.signal,
+            });
+          }
+        } else {
+          response = await reader.read(
+            [
+              rootFilter,
+              {
+                ...filter,
+                ...(nextCursor
+                  ? {
+                      thread_cursor: nextCursor.created_at,
+                      thread_cursor_id: nextCursor.id,
+                    }
+                  : {}),
+              },
+            ],
+            { signal: owned.signal },
+          );
+        }
         if (!active()) return;
         const events = admit(response);
         if (!active()) return;
@@ -433,21 +539,24 @@ export function createThreadView({
           )
           .sort(compare);
         if (
+          !bounds &&
           replies.some((event) => nextCursor && compare(event, nextCursor) <= 0)
         )
           throw new Error(
             "Thread pagination did not advance. Refresh to try again.",
           );
-        nextCursor = replies.at(-1) ?? nextCursor;
+        nextCursor = bounds
+          ? (bounds.cursor ?? undefined)
+          : (replies.at(-1) ?? nextCursor);
         nextPages++;
         fetched = union(fetched, related(events));
         if (fetched.length > MAX_EVENTS || byteSize(fetched) > MAX_BYTES) {
           retain(fetched);
           return;
         }
-        // Even a short page can be filtered after LIMIT. Continue until an empty
-        // response; label that as no more returned, never proven total history.
-        more = replies.length > 0;
+        // Only strict bounds prove exhaustion. Legacy short pages may be filtered
+        // after LIMIT, so an empty continuation means merely no more returned.
+        more = bounds ? bounds.hasMore : replies.length > 0;
         if (!more) break;
       }
       if (!active()) return;
@@ -460,6 +569,8 @@ export function createThreadView({
       publish({
         status: "ready",
         error: undefined,
+        readKind: undefined,
+        direction: mode === "older" ? "older" : "forward",
         canLoadMore: more && pages < MAX_PAGES,
         limited: more && pages >= MAX_PAGES,
       });

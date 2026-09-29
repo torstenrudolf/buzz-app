@@ -14,13 +14,39 @@ test("shared avatars defer offscreen artwork, omit the referrer and recover from
       contentType: "image/png",
     });
   });
+  let sentinelRequests = 0;
+  await page.route("https://images.example/sentinel.png", (route) => {
+    sentinelRequests++;
+    return route.fulfill({ status: 204 });
+  });
   await page.goto(
     "/tests/fixtures/agents.html?external-avatar&offscreen-avatar",
   );
   await expect(
     page.getByRole("region", { name: "Agents", exact: true }),
   ).not.toBeInViewport();
-  await page.waitForTimeout(300);
+  const avatar = page
+    .getByRole("region", { name: "Library identities", exact: true })
+    .getByRole("img", { name: /^A Brain identity/ })
+    .first();
+  const image = avatar.locator("img");
+  // The library cards mount after an asynchronous refresh. The offscreen
+  // avatar must exist with its source before the barrier can say anything
+  // about whether it was deferred.
+  await expect(image).toHaveAttribute(
+    "src",
+    "https://images.example/avatar.png",
+  );
+  // Barrier: a lazy image added on screen now is requested only after the
+  // browser has evaluated lazy loading for the page, including the avatar.
+  await page.evaluate(() => {
+    const sentinel = document.createElement("img");
+    sentinel.loading = "lazy";
+    sentinel.alt = "";
+    sentinel.src = "https://images.example/sentinel.png";
+    document.body.prepend(sentinel);
+  });
+  await expect.poll(() => sentinelRequests).toBe(1);
   expect(requests).toHaveLength(0);
   await page.evaluate(() =>
     window.scrollTo(0, document.documentElement.scrollHeight),
@@ -31,18 +57,11 @@ test("shared avatars defer offscreen artwork, omit the referrer and recover from
   await expect.poll(() => requests.length).toBe(1);
   expect(requests[0].referer).toBeUndefined();
 
-  const avatar = page
-    .getByRole("article")
-    .filter({
-      has: page.getByRole("button", { name: "A Brain: 2 identities" }),
-    })
-    .getByRole("img", { name: "A Brain", exact: true });
-  const image = avatar.locator("img");
   await expect
     .poll(() => image.evaluate((el) => el.naturalWidth))
     .toBeGreaterThan(0);
   await expect(image).toHaveCSS("opacity", "1");
-  await expect(avatar).toHaveText("");
+  await expect(avatar.locator("[data-avatar-shape]")).toHaveText("");
   const original = await avatar.boundingBox();
 
   let release;
@@ -75,5 +94,5 @@ test("shared avatars defer offscreen artwork, omit the referrer and recover from
     .poll(() => image.evaluate((el) => el.naturalWidth))
     .toBeGreaterThan(0);
   await expect(image).toHaveCSS("opacity", "1");
-  await expect(avatar).toHaveText("");
+  await expect(avatar.locator("[data-avatar-shape]")).toHaveText("");
 });

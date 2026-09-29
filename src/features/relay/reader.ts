@@ -1,4 +1,5 @@
 import { isWorkflowDefinitionBatch } from "../workflows/queries";
+import { verifyThreadWindows } from "./thread-window";
 import { yieldToHost } from "./yield";
 import { createRelayProfiler, type RelayProfiler } from "./profiling";
 import type { ReadFilter, RelayEvent } from "./events";
@@ -154,21 +155,23 @@ export function createRelayReader(
                 job.id,
                 job.priority,
               );
-        void query.then(
-          (events) => {
+        void query
+          .then(async (events) => {
             if (byteSize(events) > 8 * 1024 * 1024)
-              finish(
-                job,
-                undefined,
-                new ReadError(
-                  "invalid-response",
-                  "Relay response exceeds the read budget",
-                ),
+              throw new ReadError(
+                "invalid-response",
+                "Relay response exceeds the read budget",
               );
-            else finish(job, Object.freeze([...events]));
-          },
-          (error) => failed(job, error),
-        );
+            await verifyThreadWindows(
+              job.filters,
+              events,
+              transport.scope,
+              transport.viewer,
+              transport.relayAuthor,
+            );
+            finish(job, Object.freeze([...events]));
+          })
+          .catch((error) => failed(job, error));
       } catch (error) {
         failed(job, error);
       }

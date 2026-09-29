@@ -125,7 +125,7 @@ per-row Change/Reset and Reset all. Buzz's host rows use a functional sequence
 choose the order of their own actions. Equal orders use stable registry identity
 and then title as tie-breakers. It
 is built from existing components (`Input`, `Button`, `NavigationSection`,
-the Plugins-list row pattern) and `formatBinding`, which renders chords as glyphs
+the shared PreferenceRow layout) and `formatBinding`, which renders chords as glyphs
 in Control, Option, Shift, Command order on Apple platforms (⇧⌘K) and as words
 elsewhere (Ctrl+Shift+K), with a plain-words accessible label. A row whose chord
 another listed shortcut also answers to carries a plain "Also used by …" line in
@@ -248,3 +248,41 @@ Appearance, Shortcuts and Notifications; other pages can adopt these when touche
 Light-mode inset fields and quiet fills use neutral-2 (#f5f5f6). Panel hover uses
 that same stop; subtle-button hover sits between neutral-2 and neutral-3, while
 selected and pressed states retain stronger contrast. Dark-mode roles are unchanged.
+
+## Preference rows
+
+`PreferenceRow` owns settings layout: an optional decorative Phosphor `icon`,
+`title`, optional `subtitle`, and `trailing` content. Titles use `text-label-sm`;
+subtitles use `text-body-sm`. Text wraps and controls retain their own interaction,
+focus, disabled, and pending behavior. The row itself is not an action target.
+
+Use `SwitchPreferenceRow` for on/off settings. It accepts the existing `label`,
+`description`, and Switch props, associates the title and description, and supports
+an optional icon. It preserves read-only, focusable pending switches.
+
+For other inputs, supply their ID as `controlId` and use the trailing render function
+to apply the generated accessible label and description:
+
+```tsx
+<PreferenceRow
+  title="Include archived channels"
+  subtitle="Include archived channels in search results."
+  controlId={checkboxId}
+  trailing={(labelProps) => (
+    <Checkbox {...labelProps} id={checkboxId} label={null}
+      checked={included} onCheckedChange={setIncluded} />
+  )}
+/>
+```
+
+Action rows pass a named Button directly to `trailing`, without `controlId`.
+Status rows may pass text such as “Required.” A row's `disabled` prop only styles
+its text and icon; the caller must also disable its control. Icons are decorative
+and must not contain interactive content. Keep plugin management actions and errors
+outside the primary toggle row. Pages retain ownership of grouping and dividers.
+
+The PreferenceRow catalog page includes interactive switch, checkbox, button,
+icon, subtitle, disabled, and required-status examples.
+
+Standard Button sizes use the 14px `text-label-sm` role while retaining their
+existing minimum heights. The extra-small capsule keeps its caption role.

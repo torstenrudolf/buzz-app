@@ -60,6 +60,7 @@ if (avatarPreviewMode)
     }),
   );
 const media = avatarMediaFixture();
+const networkFetch = window.fetch.bind(window);
 window.fetch = async (input, init) => {
   const url = String(input);
   const upload = await media.request(url, init);
@@ -107,6 +108,8 @@ window.fetch = async (input, init) => {
     profiles.set(id, event);
     return Response.json({ accepted: true, event_id: event.id });
   }
+  // Inventory reads stay on the network so browser tests can route them.
+  if (url.endsWith("/agent-inventory")) return networkFetch(input, init);
   throw new Error(`Unexpected fixture request: ${url}`);
 };
 // Only this fixture rewrites image display to local blobs; production stores raw URLs.

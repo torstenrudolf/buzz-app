@@ -864,6 +864,7 @@ it.each([
   "nostr:npub1invalid",
   "nostr:nsec1invalid",
   "nostr:note1invalid",
+  `buzz:agent-profile:${mic}`,
   `${profileTarget(mic)}?relay=https://example.test`,
   "javascript:alert%281%29",
   "data:text/html,hello",

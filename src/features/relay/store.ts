@@ -200,6 +200,8 @@ export function createChannelStore(
       const old = previous.get(channel.id);
       return old &&
         old.name === channel.name &&
+        old.description === channel.description &&
+        old.visibility === channel.visibility &&
         old.preview === preview &&
         old.hidden === channel.hidden &&
         old.private === channel.private &&
@@ -1219,7 +1221,23 @@ export function createChannelStore(
       }
     }
   }
-  /** Resolve only returned/demanded nonmember channels, through the verified reader. */
+  /** Resolve only returned/demanded nonmember channels, through the verified reader.
+   *
+   * Two properties here carry the create-channel path in work-sessions.ts
+   * `refresh`, which guards them with real-store tests in work-sessions.test.ts
+   * rather than through this store's own suite:
+   * - The id filter keeps every channel the store does not yet authorize, so a
+   *   just-created channel is confirmed by one exact `#d` read instead of the
+   *   full viewer-roster rediscovery. Skipping such ids would send every create
+   *   back through the full pass. See "admits a created ... channel through the
+   *   store's exact read without rediscovering the roster".
+   * - Events apply through `applyDiscovery`, which always commits the list as
+   *   `ready`. Only resolve into a list discovery has already made ready; on an
+   *   idle, loading or error list this would publish a ready list holding just
+   *   these channels and hide a failed initial discovery. See "creates a channel
+   *   during initial discovery without committing a list of only that channel";
+   *   its check that every ready snapshot carries the first page's channel is
+   *   the canonical regression test. */
   async function resolve(
     channelIds: readonly string[],
     settings?: ReadOptions,

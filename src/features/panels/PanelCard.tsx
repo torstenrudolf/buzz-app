@@ -1,3 +1,4 @@
+import type { Ref } from "react";
 import { Panel } from "../../shared/design-system/ui/Panel";
 import { PanelHeader } from "../../shared/design-system/ui/PanelHeader";
 import { IconButton } from "../../shared/design-system/ui/IconButton";
@@ -8,15 +9,19 @@ import styles from "./Panels.module.css";
 
 // Ordinary shared UI: the caller still owns placement and selection.
 export function PanelCard({
+  ref,
   panel,
   closeLabel,
   ...props
 }: PanelProps & {
+  ref?: Ref<HTMLElement>;
   panel: RegisteredPanel;
   closeLabel?: string;
 }) {
   return (
     <aside
+      ref={ref}
+      tabIndex={-1}
       className={styles.cardLayout}
       aria-label={panel.title}
       onKeyDown={(event) => {

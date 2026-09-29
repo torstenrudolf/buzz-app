@@ -7,7 +7,7 @@ import {
 import { QuestionIcon } from "../shared/design-system/icons";
 import { Button } from "../shared/design-system/ui/Button";
 import { IconButton } from "../shared/design-system/ui/IconButton";
-import { PreferenceRow } from "../shared/design-system/ui/PreferenceRow";
+import { SwitchPreferenceRow } from "../shared/design-system/ui/SwitchPreferenceRow";
 import { ToastNotice } from "../shared/design-system/ui/Toast";
 import { Tooltip } from "../shared/design-system/ui/Tooltip";
 import { AgentDefaultsCard } from "./AgentDefaultsCard";
@@ -290,7 +290,7 @@ export function AgentSettings({
       </section>
       <AgentDefaultsCard control={control} state={state} />
       <div className="mt-6">
-        <PreferenceRow
+        <SwitchPreferenceRow
           label="Remember mentioned agents"
           description="Start your next message with the agents from your last one in the same channel or thread."
           checked={preference}

@@ -1755,7 +1755,7 @@ fn real_ipc_import_uses_selected_memory_custody_and_stays_disabled() {
     let source = dir.path().join("legacy/xyz.block.buzz.app.dev/agents");
     std::fs::create_dir_all(&source).unwrap();
     let bytes = serde_json::to_vec(&json!([
-        {"pubkey":PUB, "relay_url":"", "name":"Selected", "agent_command":"buzz-agent", "agent_args":[], "start_on_app_launch":true},
+        {"pubkey":PUB, "auth_tag":"[\"auth\",\"c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5\",\"\",\"6fd97eb61e46846e184a567429e66cbb76e84aa4f70b51cdf41e18b423679952433e952ae1fc344c74c6beaad0055a7a276d512823fcba8c6512407bb1558dce\"]", "relay_url":"", "name":"Selected", "agent_command":"buzz-agent", "agent_args":[], "start_on_app_launch":true},
         {"pubkey":"ab".repeat(32), "relay_url":"wss://stale.example", "name":"Not selected"},
         {"pubkey":"cd".repeat(32), "relay_url":"wss://user:secret@raw.example/path", "name":"Unsupported old pin"}
     ])).unwrap();
@@ -1831,6 +1831,7 @@ fn real_ipc_import_uses_selected_memory_custody_and_stays_disabled() {
         .lock()
         .unwrap()
         .contains_key(selected["id"].as_str().unwrap()));
+    assert_eq!(imported["agents"][0]["configured"], true);
     assert_eq!(imported["agents"][0]["enabled"], false);
     assert_eq!(imported["agents"][0]["status"], "stopped");
     assert!(!imported.to_string().contains(KEY));
@@ -2216,4 +2217,42 @@ async fn restore_uses_serialized_launch_preference_not_enabled_alone() {
     assert!(data.agents[0].start_on_app_launch);
     assert!(data.agents[0].status == ProcessStatus::Failed);
     assert_eq!(data.agents[0].error.as_deref(), Some(RUNTIME_GATE));
+}
+
+#[test]
+fn startup_parks_metadata_without_credentials_or_runtime_and_follows_removal() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("store");
+    let legacy = dir.path().join("legacy");
+    let source = legacy
+        .join(LegacySource::Installed.app_directory())
+        .join("agents");
+    std::fs::create_dir_all(&source).unwrap();
+    let bytes = serde_json::to_vec(&json!([{
+        "pubkey": "ab".repeat(32), "name": "Parked fixture",
+        "start_on_app_launch": true, "auth_tag": "DO_NOT_COPY",
+        "env_vars": {"TOKEN": "DO_NOT_COPY"}
+    }]))
+    .unwrap();
+    std::fs::write(source.join("managed-agents.json"), &bytes).unwrap();
+    let paths = || Ok((root.clone(), legacy.clone(), dir.path().join("workspace")));
+    let host = AgentHost::open(paths());
+    let snapshot = host.with(|host| host.snapshot()).unwrap();
+    let value = serde_json::to_value(snapshot).unwrap();
+    assert_eq!(value["parked"][0]["name"], "Parked fixture");
+    assert_eq!(value["agents"], json!([]));
+    assert_eq!(value["inventoryWarnings"], json!([]));
+    assert!(!value.to_string().contains("DO_NOT_COPY"));
+    assert_eq!(
+        std::fs::read(source.join("managed-agents.json")).unwrap(),
+        bytes
+    );
+    drop(host);
+    std::fs::remove_dir_all(&legacy).unwrap();
+    let host = AgentHost::open(paths());
+    let reopened = serde_json::to_value(host.with(|host| host.snapshot()).unwrap()).unwrap();
+    // Without the old installation nothing is importable, so nothing is listed.
+    assert_eq!(reopened["parked"], json!([]));
+    assert_eq!(reopened["agents"], json!([]));
+    assert_eq!(reopened["inventoryWarnings"], json!([]));
 }

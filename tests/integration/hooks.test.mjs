@@ -47,6 +47,10 @@ function fixture(t) {
   git("init", "-q");
   git("config", "user.name", "Hook Test");
   git("config", "user.email", "hook-test@example.invalid");
+  // Git 2.50+ commits detach `maintenance run --auto`, whose worktree-prune
+  // task deletes a `.git/worktrees/<id>` entry that has no gitdir or lock yet.
+  // The sibling `worktree add` below would race that background process.
+  git("config", "maintenance.auto", "false");
   write("untouched.ts", "export const unrelated = 1;\n");
   write("partial.ts", "export const first = 1;\nexport const second = 2;\n");
   git("add", ".");

@@ -166,7 +166,9 @@ export function WorkflowCommunity({
           )
         }
       />
-      {channels.status === "loading" && <p role="status">Reading channels…</p>}
+      {channels.status === "loading" && !channels.channels.length && (
+        <p role="status">Reading channels…</p>
+      )}
       {channels.status === "error" && (
         <div className="workflow-page-state">
           <p role="alert" className="text-danger">

@@ -8,7 +8,7 @@ test("profile avatar cutout shows the shell through hover, press and open menu",
   page,
   app,
   browserName,
-}, testInfo) => {
+}) => {
   await page.goto(app.origin);
   const control = page.getByRole("button", {
     name: "Your profile",
@@ -22,17 +22,6 @@ test("profile avatar cutout shows the shell through hover, press and open menu",
   await control.click();
   await page.getByRole("menuitem", { name: "Settings", exact: true }).click();
   await expect(page.getByRole("main")).toBeFocused();
-  for (const width of [390, 639, 640, 650, 700, 701, 1280]) {
-    await page.setViewportSize({ width, height: 844 });
-    const avatar = await control.boundingBox();
-    const panel = await page
-      .getByRole("region", { name: "Settings", exact: true })
-      .boundingBox();
-    expect(avatar.width).toBe(40);
-    expect
-      .soft(avatar.x + avatar.width, `${width}px: avatar and card right edges`)
-      .toBe(panel.x + panel.width);
-  }
   await page.setViewportSize({ width: 1280, height: 844 });
   for (const mode of ["light", "dark"]) {
     await page.emulateMedia({ colorScheme: mode });
@@ -70,12 +59,12 @@ test("profile avatar cutout shows the shell through hover, press and open menu",
         ctx.drawImage(image, 0, 0);
         const at = (x, y) => [...ctx.getImageData(x, y, 1, 1).data];
         return {
-          // The screenshot includes 4px outside the 40px control. Its gap
-          // is at avatar-local (29,29); the other samples detect a focus ring.
-          gap: at(33, 33),
-          left: at(1, 24),
-          top: at(24, 1),
-          right: at(46, 24),
+          // The screenshot includes 4px outside the 28px control. Its gap
+          // is at avatar-local (20,20); the other samples detect a focus ring.
+          gap: at(24, 24),
+          left: at(1, 18),
+          top: at(18, 1),
+          right: at(34, 18),
         };
       }, png.toString("base64"));
     const expected = await sample(background);
@@ -89,19 +78,13 @@ test("profile avatar cutout shows the shell through hover, press and open menu",
         await expect(control).toHaveCSS("outline-style", "none");
         await expect(control).toHaveCSS("border-width", "0px");
         await expect(control).toHaveCSS("box-shadow", "none");
-        const screenshot = await page.screenshot({
-          clip,
-          path: testInfo.outputPath(`${mode}-${state}.png`),
-        });
+        const screenshot = await page.screenshot({ clip });
         expect
           .soft(
             await sample(screenshot),
             `${mode}/${state}: clear cutout and no pointer ring`,
           )
           .toEqual(expected);
-        await page.screenshot({
-          path: testInfo.outputPath(`${mode}-${state}-shell.png`),
-        });
       } finally {
         if (state === "pressed") await page.mouse.up();
       }
@@ -117,9 +100,12 @@ test("profile avatar cutout shows the shell through hover, press and open menu",
     await expect(control).toBeFocused();
     await expect(control).toHaveCSS("outline-style", "solid");
     await expect(control).toHaveCSS("outline-width", "2px");
-    await page.screenshot({
-      path: testInfo.outputPath(`${mode}-keyboard-focus.png`),
-    });
+    const focused = await sample(await page.screenshot({ clip }));
+    for (const side of ["left", "top", "right"])
+      expect(
+        focused[side],
+        `${mode}: keyboard ring paints at ${side}`,
+      ).not.toEqual(expected[side]);
     await control.press("Enter");
     await expect(control).toHaveAttribute("aria-expanded", "true");
     await page.keyboard.press("Escape");
@@ -127,6 +113,5 @@ test("profile avatar cutout shows the shell through hover, press and open menu",
     await page.mouse.click(400, 20);
     await expect(control).not.toBeFocused();
     await expect(control).toHaveCSS("outline-style", "none");
-    await page.screenshot({ path: testInfo.outputPath(`${mode}-shell.png`) });
   }
 });

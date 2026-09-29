@@ -74,7 +74,13 @@ export function ChannelLifecycleMenu({
     );
   if (
     !state ||
-    !(state.canHide || state.canArchive || state.canDelete || state.canLeave)
+    !(
+      state.canHide ||
+      state.canArchive ||
+      state.canDelete ||
+      state.canLeave ||
+      state.deleteUnavailable
+    )
   )
     return null;
   return (
@@ -96,6 +102,18 @@ export function ChannelLifecycleMenu({
               </MenuIcon>
               Archive channel
             </MenuItem>
+          )}
+          {state.deleteUnavailable && (
+            <>
+              <MenuItem disabled>Delete check unavailable</MenuItem>
+              <MenuItem
+                closeOnClick={false}
+                disabled={disabled}
+                onClick={() => setRetry((value) => value + 1)}
+              >
+                Retry Delete check
+              </MenuItem>
+            </>
           )}
           {state.canDelete && (
             <MenuItem disabled={disabled} onClick={() => choose("delete")}>

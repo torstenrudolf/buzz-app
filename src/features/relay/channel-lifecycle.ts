@@ -1,4 +1,5 @@
 import { getEventHash } from "nostr-tools";
+import { attestedOwner } from "../agents/owner-attestation";
 import type { RelayReader } from "./reader";
 import type { RelayWriter } from "./transport";
 import { PublishRejected } from "./outbox";
@@ -125,11 +126,66 @@ export function createChannelLifecycle({
       throw new Error("Unexpected channel state response");
     return events;
   }
-  async function load(id: string, signal: AbortSignal) {
+  async function load(id: string, signal: AbortSignal, checkOwnedAgent = true) {
     assertAccess(id);
     const events = await read([39000, 39001, 39002], id, signal);
     assertAccess(id);
-    return lifecycleSettings(events, id, viewer, relayAuthor);
+    const settings = lifecycleSettings(events, id, viewer, relayAuthor);
+    const metadata = lifecycleRecord(events, 39000, id, relayAuthor);
+    if (
+      !reader ||
+      !checkOwnedAgent ||
+      settings.canDelete ||
+      settings.canHide ||
+      (metadata && exactLifecycleTag(metadata, "archived") === "true")
+    )
+      return settings;
+    // lifecycleSettings validated every owner against the signed member roster.
+    const owners =
+      lifecycleRecord(events, 39001, id, relayAuthor)?.tags.flatMap(
+        ([name, pubkey, role]) =>
+          name === "p" && role === "owner" && pubkey ? [pubkey] : [],
+      ) ?? [];
+    if (!owners.length) return settings;
+    // Bound the whole optional lookup, not each batch: it must not consume the
+    // lifecycle deadline and erase independently established Archive/Leave.
+    const profileSignal = AbortSignal.any([signal, AbortSignal.timeout(5000)]);
+    try {
+      for (let start = 0; start < owners.length; start += 4) {
+        const batch = owners.slice(start, start + 4);
+        const profiles = await reader.read(
+          batch.map((pubkey) => ({ kinds: [0], authors: [pubkey], limit: 1 })),
+          { signal: profileSignal, fresh: true, priority: "foreground" },
+        );
+        profileSignal.throwIfAborted();
+        assertAccess(id);
+        if (
+          profiles.some(
+            (event) => event.kind !== 0 || !batch.includes(event.pubkey),
+          )
+        )
+          throw new Error("Unexpected channel owner profile response");
+        for (const pubkey of batch) {
+          const profile = profiles
+            .filter((event) => event.pubkey === pubkey)
+            .reduce<RelayEvent | undefined>(newer, undefined);
+          // This verifies profile provenance, NOT the relay's persisted ownership
+          // mapping. The viewer signs; the relay still authorizes every Delete.
+          const owner = profile && (await attestedOwner(profile));
+          profileSignal.throwIfAborted();
+          assertAccess(id);
+          if (owner === viewer)
+            return Object.freeze({ ...settings, canDelete: true });
+        }
+      }
+      return settings;
+    } catch {
+      // Optional read failures affect only Delete. Cancellation/access loss still
+      // invalidate the whole result, including late replies from an old session.
+      signal.throwIfAborted();
+      assertAccess(id);
+      return Object.freeze({ ...settings, deleteUnavailable: true });
+    }
   }
   async function readVisibility(signal: AbortSignal) {
     const events = await read([DM_VISIBILITY_KIND], viewer, signal, true);
@@ -206,7 +262,11 @@ export function createChannelLifecycle({
       try {
         await owned(async (signal) => {
           const authorize = async () => {
-            const settings = await load(id, signal);
+            const settings = await load(id, signal, action === "delete");
+            if (action === "delete" && settings.deleteUnavailable)
+              throw new Error(
+                "Delete check unavailable. Retry channel permissions.",
+              );
             const permitted = {
               archive: settings.canArchive,
               delete: settings.canDelete,

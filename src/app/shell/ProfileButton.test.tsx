@@ -255,6 +255,84 @@ it.each([false, true])(
   },
 );
 
+it("opens the viewer's profile from the menu avatar and hands focus to the page", async () => {
+  const user = userEvent.setup();
+  const snapshot = {
+    profile: { name: "Fixture", picture: "" },
+    viewer: "a".repeat(64),
+  };
+  const connection = { status: "unavailable", session: undefined, scope: "" };
+  const presence = { status: "online", preference: "auto", error: null };
+  const subscribe = () => () => {};
+  const actions: readonly [] = [];
+  const accountActions = {
+    subscribe,
+    snapshot: () => actions,
+  } as unknown as AccountActionsService;
+  const communities = {
+    subscribe,
+    snapshot: () => snapshot,
+    presence: { subscribe, snapshot: () => presence },
+    relay: { subscribe, snapshot: () => connection },
+  } as unknown as Communities;
+  const onProfile = vi.fn();
+  const view = render(
+    <>
+      <ProfileButton
+        communities={communities}
+        accountActions={accountActions}
+        settingsSelected={false}
+        onSettings={() => {}}
+      />
+      <main id="main-content" tabIndex={-1} />
+    </>,
+  );
+  const trigger = screen.getByRole("button", { name: "Your profile" });
+  await user.click(trigger);
+  await screen.findByRole("menu", { name: "Fixture" });
+  // Without a profile panel the header avatar stays presentational.
+  expect(
+    screen.queryByRole("menuitem", { name: "View your profile" }),
+  ).not.toBeInTheDocument();
+  await user.keyboard("{Escape}");
+  await waitFor(() =>
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument(),
+  );
+  view.rerender(
+    <>
+      <ProfileButton
+        communities={communities}
+        accountActions={accountActions}
+        settingsSelected={false}
+        onSettings={() => {}}
+        onProfile={onProfile}
+      />
+      <main id="main-content" tabIndex={-1} />
+    </>,
+  );
+  act(() => trigger.focus());
+  await user.keyboard("{Enter}");
+  const menu = await screen.findByRole("menu", { name: "Fixture" });
+  const item = screen.getByRole("menuitem", { name: "View your profile" });
+  expect(item).toHaveAttribute("data-icon-variant", "avatar");
+  // Local Online intent supplies no observed badge without a community session.
+  expect(item.querySelector(".buzz-avatar-status")).not.toHaveAttribute(
+    "data-status",
+  );
+  // A keyboard opening lands on the avatar as the first item. The item and the
+  // button it renders must activate once between them, not on the opening key.
+  expect(item).toHaveFocus();
+  await user.keyboard("{ArrowDown}");
+  expect(screen.getByRole("menuitem", { name: "Settings" })).toHaveFocus();
+  await user.keyboard("{ArrowUp}");
+  expect(item).toHaveFocus();
+  await user.keyboard("{Enter}");
+  // The header trigger, not the closing menu item, owns focus restoration.
+  expect(onProfile).toHaveBeenCalledExactlyOnceWith(trigger);
+  await waitFor(() => expect(menu).not.toBeInTheDocument());
+  expect(screen.getByRole("main")).toHaveFocus();
+});
+
 it("shows the selected community name and authenticated avatar without saving a local default", async () => {
   const { createRelaySession } = await import("../../features/relay/session");
   const owner = createRelaySession(null);

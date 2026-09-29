@@ -61,7 +61,9 @@ function RunPage({
           Refresh runs
         </Button>
       </div>
-      {snapshot.status === "loading" && <p role="status">Reading runs…</p>}
+      {snapshot.status === "loading" && !snapshot.data.runs.length && (
+        <p role="status">Reading runs…</p>
+      )}
       {snapshot.status === "unavailable" && (
         <p role="status">
           Run history is unavailable. This does not mean the workflow was

@@ -85,6 +85,10 @@
       "plugins": ["./tests/browser/page-errors.grit"]
     },
     {
+      "includes": ["**"],
+      "plugins": ["./tests/browser/fixed-sleeps.grit"]
+    },
+    {
       "includes": ["src/shared/design-system/icons/**"],
       "linter": {
         "rules": {

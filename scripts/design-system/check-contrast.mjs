@@ -61,6 +61,21 @@ const ACCEPTED_LINK_PAIRS = new Set([
 ]);
 const acceptedLinkMeasurements = new Map();
 
+// Designer-approved removal of the Away outline; see DESIGN.md § Identity shapes.
+// Bind each exception to the exact mode, role, fill and surface color.
+const ACCEPTED_AWAY_PAIRS = new Set([
+  "light --status-away #ffba18 on --surface-base #f5f5f6",
+  "light --status-away #ffba18 on --surface-panel #ffffff",
+  "light --status-away #ffba18 on --surface-inset #f5f5f6",
+  "light --status-away #ffba18 on --surface-popover #ffffff",
+  "light --status-away #ffba18 on --affordance-selected #e8e8e8",
+  "light --status-away #ffba18 on --affordance-panel-hover #f5f5f6",
+  "light --status-away #ffba18 on --affordance-subtle-hover #efeff0",
+  "light --status-away #ffba18 on --affordance-floating-hover #e8e8e8",
+  "light --status-away #ffba18 on --neutral-4 #dadada",
+]);
+const acceptedAwayMeasurements = new Map();
+
 /** Roles measured at the meta target rather than the body target. */
 const META_ROLES = new Set(["--text-tertiary", "--text-metadata"]);
 
@@ -166,10 +181,9 @@ const BOUNDARY_ROLES = [
   "--border-danger",
   "--border-warning",
   "--status-online",
-  // Avatar cores are inset inside a same-status outline. The outline, not
-  // the core, touches the surrounding surface (WCAG 1.4.11 graphic boundary).
+  // Online retains its outline; Away now exposes the step-10 fill directly.
   "--status-avatar-online-border",
-  "--status-avatar-away-border",
+  "--status-away",
   "--status-offline",
 ];
 
@@ -279,16 +293,17 @@ for (const [mode, map] of Object.entries(modes)) {
   for (const [role, fill] of PAIRS) check(role, fill);
   for (const [text, tint] of TINT_PAIRS) check(text, tint);
   for (const role of BOUNDARY_ROLES) {
-    const surfaces = role.startsWith("--status-avatar-")
-      ? [
-          ...BOUNDARY_SURFACES,
-          "--affordance-selected",
-          "--affordance-panel-hover",
-          "--affordance-subtle-hover",
-          "--affordance-floating-hover",
-          "--neutral-4",
-        ]
-      : BOUNDARY_SURFACES;
+    const surfaces =
+      role.startsWith("--status-avatar-") || role === "--status-away"
+        ? [
+            ...BOUNDARY_SURFACES,
+            "--affordance-selected",
+            "--affordance-panel-hover",
+            "--affordance-subtle-hover",
+            "--affordance-floating-hover",
+            "--neutral-4",
+          ]
+        : BOUNDARY_SURFACES;
     for (const surface of surfaces) {
       const borderColor = resolve(map, role);
       const surfaceColor = resolve(map, surface);
@@ -296,6 +311,11 @@ for (const [mode, map] of Object.entries(modes)) {
         borderColor && surfaceColor
           ? wcagRatio(borderColor, surfaceColor)
           : null;
+      const pair = `${mode} ${role} ${borderColor} on ${surface} ${surfaceColor}`;
+      if (ratio !== null && ratio < 3 && ACCEPTED_AWAY_PAIRS.has(pair)) {
+        acceptedAwayMeasurements.set(pair, ratio);
+        continue;
+      }
       if (ratio === null || ratio < 3) {
         boundaryFailures.push(
           `${mode}: ${role} on ${surface} — ${ratio === null ? "unresolved color" : `${ratio.toFixed(3)}:1`}, needs 3:1`,
@@ -337,6 +357,19 @@ const staleLinkPairs = [...ACCEPTED_LINK_PAIRS].filter(
 if (staleLinkPairs.length) {
   console.log("ℹ Accepted link pairs no longer used — review and remove:");
   for (const pair of staleLinkPairs) console.log(`  ${pair}`);
+}
+
+for (const [pair, ratio] of acceptedAwayMeasurements) {
+  console.log(
+    `  (accepted Away contrast) ${pair}: ${ratio.toFixed(3)}:1 < 3:1 — approved unoutlined badge, not a contrast pass`,
+  );
+}
+const staleAwayPairs = [...ACCEPTED_AWAY_PAIRS].filter(
+  (pair) => !acceptedAwayMeasurements.has(pair),
+);
+if (staleAwayPairs.length) {
+  console.log("ℹ Accepted Away pairs no longer used — review and remove:");
+  for (const pair of staleAwayPairs) console.log(`  ${pair}`);
 }
 
 if (boundaryFailures.length > 0) {

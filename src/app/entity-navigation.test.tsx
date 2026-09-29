@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
+import { stubAvatarBrowserApis } from "../features/agents/avatar-testing";
+stubAvatarBrowserApis();
 import {
   act,
   cleanup,
@@ -9,10 +11,16 @@ import {
   within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { finalizeEvent, getPublicKey } from "nostr-tools";
 import { App } from "./App";
 import { createServices, type AppServices } from "./services";
+import {
+  bindSharedTarget,
+  parseTargetLink,
+  targetLink,
+  type OpenTarget,
+} from "../features/navigation/targets";
 import { bindDeepLinks } from "../features/navigation/deep-links";
 import { matchesEvent } from "../features/relay/projection";
 import type { ReadFilter } from "../features/relay/events";
@@ -75,6 +83,15 @@ const project = finalizeEvent(
   },
   key,
 );
+// jsdom has no media queries; responsive geometry is covered in browser tests.
+beforeEach(() => {
+  vi.stubGlobal("matchMedia", (media: string) => ({
+    media,
+    matches: false,
+    addEventListener() {},
+    removeEventListener() {},
+  }));
+});
 let services: AppServices | undefined;
 let stop = () => {};
 afterEach(async () => {
@@ -330,4 +347,151 @@ it("lists only active primary pages in the channel sidebar", async () => {
   expect(
     screen.getByRole("complementary", { name: "Channel sidebar" }),
   ).toBeInTheDocument();
+});
+
+function legacyPageFixture() {
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+  );
+  vi.stubEnv("VITE_BUZZ_LIVE", "1");
+  localStorage.setItem(
+    `buzz-client.v1:${viewer}`,
+    JSON.stringify({
+      profile: { name: "Fixture", picture: "" },
+      memberships: [{ id: origin, name: "Fixture community" }],
+      selected: origin,
+    }),
+  );
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string) => {
+      if (url.endsWith("/identity")) return Response.json({ viewer });
+      if (url.endsWith("/session"))
+        return Response.json({ viewer, relayAuthor: viewer, relayUrl: origin });
+      if (url.endsWith("/query")) return Response.json([]);
+      return Response.json({});
+    }),
+  );
+  const current = createServices();
+  services = current;
+  render(<App services={current} />);
+  return current;
+}
+
+it.each(["Inbox", "Bestie"])(
+  "normalizes old %s links in the same visit and caller, retaining scope",
+  async (name) => {
+    const current = legacyPageFixture();
+    await screen.findByRole("navigation", { name: "Pages" });
+    const pageId = name.toLowerCase();
+    for (const scope of [
+      undefined,
+      null,
+      { viewer, communityOrigin: origin },
+    ]) {
+      act(() => {
+        void current.navigation.open({
+          version: 1,
+          kind: "settings",
+          section: "appearance",
+        });
+      });
+      await waitFor(() =>
+        expect(current.navigation.snapshot().status).toBe("opened"),
+      );
+      const previous = current.navigation.snapshot().entry.id;
+      const old: OpenTarget = {
+        version: 1,
+        kind: "page",
+        pluginId: "buzz.channels",
+        pageId: "channels",
+        route: { version: 1, params: name },
+        ...(scope !== undefined ? { scope } : {}),
+      };
+      const bound = bindSharedTarget(parseTargetLink(targetLink(old)), viewer);
+      let visit = "";
+      let result!: ReturnType<typeof current.navigation.open>;
+      act(() => {
+        result = current.navigation.open(bound);
+        visit = current.navigation.snapshot().entry.id;
+      });
+      await waitFor(() =>
+        expect(current.navigation.snapshot().status).toBe("opened"),
+      );
+      expect(await result).toEqual({ status: "opened" });
+      expect(current.navigation.snapshot().entry).toEqual({
+        id: visit,
+        target: {
+          version: 1,
+          kind: "page",
+          pluginId: `buzz.${pageId}`,
+          pageId,
+          ...(scope !== undefined ? { scope } : {}),
+        },
+      });
+      expect(current.communities.snapshot().selected).toBe(
+        scope === null ? null : origin,
+      );
+      act(() => current.navigation.back());
+      await waitFor(() =>
+        expect(current.navigation.snapshot().entry.id).toBe(previous),
+      );
+      act(() => current.navigation.forward());
+      await waitFor(() => {
+        expect(current.navigation.snapshot().entry.id).toBe(visit);
+        expect(current.navigation.snapshot().status).toBe("opened");
+      });
+    }
+  },
+);
+
+it("restores legacy placeholder history but does not normalize unknown versions or bypass access and plugin gates", async () => {
+  const old: OpenTarget = {
+    version: 1,
+    kind: "page",
+    pluginId: "buzz.channels",
+    pageId: "channels",
+    route: { version: 1, params: "Inbox" },
+  };
+  window.history.replaceState(
+    null,
+    "",
+    `/#buzz=${encodeURIComponent(JSON.stringify(old))}`,
+  );
+  const current = legacyPageFixture();
+  await waitFor(() =>
+    expect(current.navigation.snapshot().status).toBe("opened"),
+  );
+  expect(current.navigation.snapshot().entry.target).toMatchObject({
+    pluginId: "buzz.inbox",
+    pageId: "inbox",
+  });
+  for (const target of [
+    { ...old, route: { version: 2, params: "Inbox" } },
+    { ...old, route: { version: 1, params: "Unknown" } },
+    { ...old, scope: { viewer: "ab".repeat(32), communityOrigin: origin } },
+  ]) {
+    let result!: ReturnType<typeof current.navigation.open>;
+    act(() => {
+      result = current.navigation.open(target);
+    });
+    await waitFor(() =>
+      expect(current.navigation.snapshot().status).toBe("failed"),
+    );
+    expect(await result).toMatchObject({ status: "failed" });
+  }
+  await act(() => current.plugins.change("disable", "buzz.inbox"));
+  let result!: ReturnType<typeof current.navigation.open>;
+  act(() => {
+    result = current.navigation.open(old);
+  });
+  await waitFor(() =>
+    expect(current.navigation.snapshot().status).toBe("failed"),
+  );
+  expect(await result).toEqual({ status: "failed", reason: "unavailable" });
 });

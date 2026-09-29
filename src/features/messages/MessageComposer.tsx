@@ -242,8 +242,10 @@ function Composer({
       const editor = input.current;
       if (!editor) return;
       const end = editor.value.length;
-      editor.setSelectionRange(end, end);
       editor.focus();
+      editor.setSelectionRange(end, end);
+      // Effect replay recreates the editor; retain this successful focus handoff.
+      focusOnMount.current = editor;
     }
   }, []);
   const nonmembers = useNonmemberMentions(session, channelId, () =>

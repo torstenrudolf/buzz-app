@@ -18,6 +18,7 @@ it("browses an own Databricks workspace before global defaults, and inherits whe
     provider: "databricks_v2",
     model: "",
     effort: "",
+    sessionPolicy: "channel",
     environmentKeys: ["DATABRICKS_HOST", "DATABRICKS_MODEL_FILTER"],
   };
   f.data.databricksDefaults = {
@@ -151,6 +152,7 @@ it("hides inherited Agent defaults hints when a selector override decides the la
             provider: "anthropic",
             model: "default-model",
             effort: "",
+            sessionPolicy: "channel",
             environmentKeys: entry.globalKeys ?? [],
           },
         },
@@ -309,6 +311,7 @@ it("only hints the compiled model when the current provider and overrides can us
             provider: entry.globalProvider ?? "",
             model: "",
             effort: "",
+            sessionPolicy: "channel",
             environmentKeys: entry.globalKeys ?? [],
           },
         },
@@ -518,8 +521,20 @@ it("adds a Pi provider API key for lookup and drops it when the provider changes
         }),
       }),
     );
+    const model = screen.getByRole("combobox", { name: "Model" });
+    // Catalog completion does not settle the popup's deferred input focus.
+    await waitFor(() => expect(model).not.toHaveAttribute("aria-busy", "true"));
+    await waitFor(() => {
+      expect(model).toHaveFocus();
+      expect(model).toHaveAttribute("aria-expanded", "true");
+    });
     await user.keyboard("{Escape}");
-    await user.click(screen.getByRole("combobox", { name: "LLM Provider" }));
+    await waitFor(() =>
+      expect(model).toHaveAttribute("aria-expanded", "false"),
+    );
+    await user.click(
+      await screen.findByRole("combobox", { name: "LLM Provider" }),
+    );
     await user.click(await screen.findByRole("option", { name: "Not set" }));
     expect(screen.queryByLabelText("Google Gemini API key")).toBeNull();
     expect(draft.environment).toEqual({});

@@ -1,6 +1,6 @@
 import { Header } from "../shared/design-system/ui/Header";
 import { ToastNotice } from "../shared/design-system/ui/Toast";
-import { PreferenceRow } from "../shared/design-system/ui/PreferenceRow";
+import { SwitchPreferenceRow } from "../shared/design-system/ui/SwitchPreferenceRow";
 import { Button } from "../shared/design-system/ui/Button";
 import { IconButton } from "../shared/design-system/ui/IconButton";
 import { Select } from "../shared/design-system/ui/Select";
@@ -213,7 +213,7 @@ export function NotificationSettings({
       <div className="grid grid-cols-1 gap-5">
         <div className={styles.preferenceList}>
           {state.categories.map(({ key, label }) => (
-            <PreferenceRow
+            <SwitchPreferenceRow
               key={key}
               label={label}
               checked={preferences.categories[key] !== false}
@@ -225,7 +225,7 @@ export function NotificationSettings({
             />
           ))}
         </div>
-        <PreferenceRow
+        <SwitchPreferenceRow
           label="Desktop alerts"
           description={
             desktopAlertsEnabled
@@ -282,7 +282,7 @@ export function NotificationSettings({
           </div>
         )}
         <div className={styles.nestedPreferences}>
-          <PreferenceRow
+          <SwitchPreferenceRow
             label="Notify while viewing"
             description="Also alert for direct messages in the conversation you have open."
             checked={preferences.notifyWhileViewing}
@@ -291,7 +291,7 @@ export function NotificationSettings({
               notifications.updatePreferences({ notifyWhileViewing })
             }
           />
-          <PreferenceRow
+          <SwitchPreferenceRow
             label="Sound"
             description="Alert with a sound for the events below."
             checked={preferences.sound}
