@@ -832,7 +832,8 @@ async fn fetch_media(
     let mut request = client()
         .map_err(|_| 502u16)?
         .get(url)
-        .timeout(Duration::from_secs(120))
+        // Match the broker's whole-media deadline; large documents may take minutes.
+        .timeout(Duration::from_secs(600))
         .header("Authorization", auth);
     if let Some(range) = &range {
         request = request.header("Range", range);
