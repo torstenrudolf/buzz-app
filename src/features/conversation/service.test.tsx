@@ -42,6 +42,7 @@ it("registers both surfaces under the injecting plugin scope, removes and replac
       const conversation = ctx.conversation;
       expect(conversation.ui.Composer).toBe(conversation.ui.Composer);
       expect(conversation.ui.Message).toBe(conversation.ui.Message);
+      expect(conversation.ui.Thread).toBe(conversation.ui.Thread);
       ctx.conversation.registerTool({
         id: "tool",
         title: "Tool",

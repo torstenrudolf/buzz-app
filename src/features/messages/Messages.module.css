@@ -14,6 +14,13 @@
   border-radius: var(--radius-card);
   box-shadow: var(--elevation-card);
 }
+.embeddedThread {
+  flex: 1;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+}
 .feed {
   flex: 1;
   min-height: 0;

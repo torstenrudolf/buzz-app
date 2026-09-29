@@ -778,3 +778,39 @@ it("revoked ordinary presentation cannot position or complete after loading", ()
   expect(h.element.scrollTop).toBe(0);
   expect(navigation.complete).not.toHaveBeenCalled();
 });
+
+it("embedded presentation keeps the thread reader without a close header or Escape dismissal", () => {
+  const thread = vi.fn(() => {
+    throw new Error("fixture unavailable");
+  });
+  const session = { thread } as unknown as RelaySession;
+  const props = {
+    session,
+    scope: "test",
+    channelId: "c",
+    channelName: "Channel",
+    messageId: "root",
+    onOpenLink: () => false,
+  };
+  const onEscape = vi.fn();
+  document.addEventListener("keydown", onEscape);
+  const { rerender } = render(
+    <ThreadPanel {...props} presentation="embedded" />,
+  );
+  expect(
+    screen.queryByRole("button", { name: "Close thread" }),
+  ).not.toBeInTheDocument();
+  expect(screen.getByRole("alert")).toHaveTextContent("fixture unavailable");
+  fireEvent.keyDown(screen.getByRole("complementary", { name: "Thread" }), {
+    key: "Escape",
+  });
+  document.removeEventListener("keydown", onEscape);
+  expect(onEscape).toHaveBeenCalledOnce();
+  const close = vi.fn();
+  rerender(<ThreadPanel {...props} close={close} />);
+  expect(screen.getByRole("button", { name: "Close thread" })).toHaveFocus();
+  fireEvent.keyDown(screen.getByRole("complementary", { name: "Thread" }), {
+    key: "Escape",
+  });
+  expect(close).toHaveBeenCalledOnce();
+});

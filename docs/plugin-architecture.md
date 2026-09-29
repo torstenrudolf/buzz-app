@@ -566,12 +566,21 @@ unambiguous signed person/agent mentions share the inline hover styling. Names i
 ordinary prose never create notification intent or establish an identity.
 
 The conversation preview exposes top-level `registerTool`, `registerCompletion` and `registerInline`
-methods and stable `conversation.ui.Composer` / `.Message` components. Generated
+methods and stable `conversation.ui.Composer` / `.Message` / `.Thread` components. Generated
 type-only `@buzz/author` declarations are exercised by a source-only external consumer
 fixture in `tests/fixtures/conversation-consumer`; it is built and installed only in
 the browser test's temporary profile.
 This remains a host-matched preview, not a stable cross-version SDK. Shared session
 ownership and trusted-plugin authority do not change.
+
+`conversation.ui.Thread({ session, scope, channelId, channelName, messageId })`
+renders the existing `ThreadPanel` in an embedded presentation without its
+side-panel header or close control. The host supplies contribution renderers, Buzz
+link navigation, registered panels in a dialog and media review. The page owns
+its surrounding header and placement and passes its current ready session and
+stable community/viewer scope; retargeting disposes the old thread and
+presentation state. The page holds no second message reader, cache or outbox.
+Exact message links still navigate to Channels rather than the page's route.
 
 ### Composer ownership and mention tools
 

@@ -1,5 +1,6 @@
 // FOUNDATION: Shared conversation UI and plugin-owned tools/renderers; never another data owner.
 import type { ReactNode } from "react";
+import { EmbeddedThread, type EmbeddedThreadProps } from "./EmbeddedThread";
 import { Service, type Context } from "@deepseek-ai/cordis";
 import { createContributions } from "../../plugins/contributions";
 import {
@@ -31,6 +32,7 @@ export type Conversation = {
   links: ContributionReader<LinkRenderer>;
   registerLink(renderer: LinkRenderer): void;
   ui: {
+    Thread: (props: EmbeddedThreadProps) => ReactNode;
     Composer: (props: Omit<MessageComposerProps, "extensions">) => ReactNode;
     Message: (props: Omit<MessageRowProps, "extensions">) => ReactNode;
   };
@@ -138,6 +140,9 @@ export class ConversationService extends Service implements Conversation {
     this.linkEntries.register(this.ctx, value);
   }
   readonly ui = {
+    Thread: (props: EmbeddedThreadProps) => (
+      <EmbeddedThread {...props} host={this.ctx} extensions={this} />
+    ),
     Composer: (props: Omit<MessageComposerProps, "extensions">) => (
       <MessageComposer {...props} extensions={this} />
     ),

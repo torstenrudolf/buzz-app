@@ -46,7 +46,6 @@ export type ThreadPanelProps = {
   messageId: string;
   replyRequest?: number | undefined;
   navigation?: PageNavigation | undefined;
-  close(): void;
   onOpenLink(url: string): boolean;
   onOpenMediaReview?(
     messageId: string,
@@ -55,25 +54,30 @@ export type ThreadPanelProps = {
     hasComments?: boolean,
   ): void;
   canOpenLink?: ((target: string) => boolean) | undefined;
-};
+} & (
+  | { presentation: "embedded"; close?: never }
+  | { presentation?: "panel"; close(): void }
+);
 
 /** Safe to retarget through ordinary props; callers do not own internal remount keys. */
 export function ThreadPanel(props: ThreadPanelProps) {
   return (
     <aside
-      className={styles.thread}
+      className={`${styles.thread} ${props.presentation === "embedded" ? styles.embeddedThread : ""}`}
       data-attachment-drop-zone=""
       onDragOver={rejectUnhandledFileDrop}
       onDrop={rejectUnhandledFileDrop}
       aria-label="Thread"
       onKeyDown={(event) => {
-        if (event.key === "Escape") {
+        if (event.key === "Escape" && props.presentation !== "embedded") {
           event.stopPropagation();
           props.close();
         }
       }}
     >
-      <ThreadHeader close={props.close} />
+      {props.presentation !== "embedded" && (
+        <ThreadHeader close={props.close} />
+      )}
       <OwnedThreadPanel
         key={messageViewKey(
           props.session,
@@ -86,7 +90,7 @@ export function ThreadPanel(props: ThreadPanelProps) {
     </aside>
   );
 }
-function ThreadHeader({ close }: Pick<ThreadPanelProps, "close">) {
+function ThreadHeader({ close }: { close(): void }) {
   const closeButton = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     closeButton.current?.focus();
