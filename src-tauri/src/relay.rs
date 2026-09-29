@@ -6,7 +6,7 @@ use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, HashMap},
     sync::OnceLock,
-    time::Duration,
+    time::{Duration, Instant},
 };
 use tokio::sync::oneshot;
 use url::Url;
@@ -582,13 +582,19 @@ async fn blossom_auth(
     ))
 }
 
-/// In-flight uploads by renderer-chosen ID. `None` records a cancel that
-/// arrived before its upload, so the upload never starts.
+/// A cancel may overtake its upload IPC. Pending IDs expire because a cancel
+/// can also arrive after completion or after an upload was rejected before start.
+const PENDING_CANCEL_LIFETIME: Duration = Duration::from_secs(60);
 #[derive(Default)]
-pub(crate) struct Uploads(std::sync::Mutex<HashMap<String, Option<oneshot::Sender<()>>>>);
+struct UploadState {
+    active: HashMap<String, oneshot::Sender<()>>,
+    pending: HashMap<String, Instant>,
+}
+#[derive(Default)]
+pub(crate) struct Uploads(std::sync::Mutex<UploadState>);
 
 impl Uploads {
-    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, Option<oneshot::Sender<()>>>> {
+    fn lock(&self) -> std::sync::MutexGuard<'_, UploadState> {
         self.0
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -597,32 +603,47 @@ impl Uploads {
     /// Registers `id`, or returns `None` when it was already cancelled.
     fn start(&self, id: &str) -> Result<Option<oneshot::Receiver<()>>> {
         let mut uploads = self.lock();
-        match uploads.remove(id) {
-            Some(None) => return Ok(None),
-            Some(Some(sender)) => {
-                uploads.insert(id.into(), Some(sender));
-                return Err("Upload is already in progress".into());
-            }
-            None if uploads.len() >= 64 => return Err("Uploads are busy".into()),
-            None => {}
+        if uploads.pending.remove(id).is_some() {
+            return Ok(None);
+        }
+        if uploads.active.contains_key(id) {
+            return Err("Upload is already in progress".into());
+        }
+        if uploads.active.len() >= 64 {
+            return Err("Uploads are busy".into());
         }
         let (sender, receiver) = oneshot::channel();
-        uploads.insert(id.into(), Some(sender));
+        uploads.active.insert(id.into(), sender);
         Ok(Some(receiver))
     }
 
     fn cancel(&self, id: &str) {
         let mut uploads = self.lock();
-        match uploads.remove(id) {
-            Some(Some(sender)) => drop(sender.send(())),
-            Some(None) => {}
-            None if uploads.len() < 64 => drop(uploads.insert(id.into(), None)),
-            None => {}
+        if let Some(sender) = uploads.active.remove(id) {
+            drop(sender.send(()));
+            return;
         }
+        let now = Instant::now();
+        uploads
+            .pending
+            .retain(|_, inserted| now.duration_since(*inserted) < PENDING_CANCEL_LIFETIME);
+        if uploads.pending.contains_key(id) {
+            uploads.pending.insert(id.into(), now);
+            return;
+        }
+        if uploads.pending.len() >= 64 {
+            // With independent IPC calls we cannot distinguish an old cancel
+            // from one that overtook its upload. Retire an arbitrary old pending
+            // ID so a new cancellation still has a bounded chance to win.
+            if let Some(old) = uploads.pending.keys().next().cloned() {
+                uploads.pending.remove(&old);
+            }
+        }
+        uploads.pending.insert(id.into(), now);
     }
 
     fn finish(&self, id: &str) {
-        self.lock().remove(id);
+        self.lock().active.remove(id);
     }
 }
 

@@ -798,3 +798,33 @@ fn uploads_cancel_before_or_during_and_reject_duplicates() {
     }
     assert!(upload_id(None).is_err());
 }
+
+#[test]
+fn late_cancels_cannot_exhaust_upload_admission() {
+    let uploads = Uploads::default();
+    for n in 0..128 {
+        let id = n.to_string();
+        let _running = uploads.start(&id).unwrap().unwrap();
+        uploads.finish(&id);
+        uploads.cancel(&id); // Renderer received completion after native finished.
+    }
+    assert!(uploads.start("fresh").unwrap().is_some());
+    assert_eq!(uploads.lock().pending.len(), 64);
+    // Early rejection before `start` has the same late-cancel path.
+    uploads.cancel("rejected-before-start");
+    assert!(uploads.start("another").unwrap().is_some());
+    // Even when active admission is full, a pre-cancelled ID never starts.
+    let mut held = Vec::new();
+    for n in 0..62 {
+        held.push(uploads.start(&format!("active-{n}")).unwrap().unwrap());
+    }
+    uploads.cancel("queued");
+    assert!(uploads.start("queued").unwrap().is_none());
+    assert!(uploads.start("overflow").is_err());
+    uploads.finish("active-0");
+    assert!(uploads.start("overflow").unwrap().is_some());
+    uploads.finish("active-1");
+    let mut active = uploads.start("active").unwrap().unwrap();
+    uploads.cancel("active");
+    assert!(active.try_recv().is_ok());
+}
