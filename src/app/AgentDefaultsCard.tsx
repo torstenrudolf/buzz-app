@@ -12,7 +12,10 @@ import { PI_API_KEYS, harnessKind } from "../bundled/agents/agent-edit";
 import { Button } from "../shared/design-system/ui/Button";
 import { Field } from "../shared/design-system/ui/Field";
 import { Input } from "../shared/design-system/ui/Input";
+import { InputGroup } from "../shared/design-system/ui/InputGroup";
+import { IconButton } from "../shared/design-system/ui/IconButton";
 import { Select } from "../shared/design-system/ui/Select";
+import { EyeIcon, EyeSlashIcon } from "../shared/design-system/icons/index";
 import styles from "./AgentSettings.module.css";
 
 const harnesses = [
@@ -20,6 +23,12 @@ const harnesses = [
   { value: "goose", label: "Goose" },
   { value: "pi", label: "Pi" },
 ] as const;
+
+const effortChoices = {
+  "buzz-agent": ["none", "minimal", "low", "medium", "high", "xhigh", "max"],
+  goose: ["off", "low", "medium", "high", "max"],
+  pi: ["off", "minimal", "low", "medium", "high", "xhigh"],
+} as const;
 
 function defaultLabel(harness: AgentDefaultsEdit["harness"], value: string) {
   return value && harness === "buzz-agent"
@@ -170,6 +179,81 @@ function ProviderChoice({
             A saved {overrideKey} environment value can override this provider.
           </p>
         )}
+    </div>
+  );
+}
+
+function PiApiKeyField({
+  provider,
+  current,
+  savedKeys,
+  disabled,
+  onChange,
+}: {
+  provider: string;
+  current: AgentDefaultsEdit;
+  savedKeys: string[];
+  disabled: boolean;
+  onChange(environment: AgentDefaultsEdit["environment"]): void;
+}) {
+  const [revealed, setRevealed] = useState(false);
+  const apiKey = PI_API_KEYS[provider];
+  if (!apiKey) return null;
+  const typed = !!current.environment[apiKey.env];
+  return (
+    <div className="space-y-2">
+      <Field label={`${apiKey.label} API key`}>
+        <InputGroup
+          trailing={
+            typed ? (
+              <IconButton
+                aria-label={revealed ? "Hide API key" : "Show API key"}
+                icon={
+                  revealed ? (
+                    <EyeSlashIcon size={16} aria-hidden="true" />
+                  ) : (
+                    <EyeIcon size={16} aria-hidden="true" />
+                  )
+                }
+                size="sm"
+                disabled={disabled}
+                onClick={() => setRevealed(!revealed)}
+              />
+            ) : undefined
+          }
+        >
+          <Input
+            type={revealed && typed ? "text" : "password"}
+            autoComplete="new-password"
+            spellCheck={false}
+            disabled={disabled}
+            value={current.environment[apiKey.env] ?? ""}
+            placeholder={
+              current.environment[apiKey.env] === null
+                ? "Will remove on save"
+                : savedKeys.includes(apiKey.env)
+                  ? "Saved key unchanged"
+                  : "Paste API key or use an existing Pi sign-in"
+            }
+            onChange={(event) => {
+              const environment = { ...current.environment };
+              if (event.target.value)
+                environment[apiKey.env] = event.target.value;
+              else {
+                delete environment[apiKey.env];
+                setRevealed(false);
+              }
+              onChange(environment);
+            }}
+          />
+        </InputGroup>
+      </Field>
+      <p className="m-0 text-body-sm text-secondary">
+        {apiKey.env} is used for model lookup and every local agent without its
+        own value, including other harnesses. Leave blank to keep a saved key or
+        use your Pi sign-in. Saved keys remain after provider changes; remove
+        them under Environment variables. Saved values are never shown again.
+      </p>
     </div>
   );
 }
@@ -470,13 +554,25 @@ export function AgentDefaultsCard({
         disabled={disabled}
         value={current.harness}
         groups={[{ label: "", options: harnesses }]}
-        onValueChange={(harness) =>
+        onValueChange={(harness) => {
+          const environment = { ...current.environment };
+          const piKey =
+            current.harness === "pi"
+              ? PI_API_KEYS[current.provider]?.env
+              : null;
+          if (
+            harness !== "pi" &&
+            piKey &&
+            typeof environment[piKey] === "string"
+          )
+            delete environment[piKey];
           change({
             harness: harness as AgentDefaultsEdit["harness"],
             // Keep the provider, but clear values tied to the old harness.
             ...(harness === current.harness ? {} : { model: "", effort: "" }),
-          })
-        }
+            environment,
+          });
+        }}
       />
       <ProviderChoice
         current={current}
@@ -484,13 +580,35 @@ export function AgentDefaultsCard({
         models={models}
         disabled={disabled}
         editSession={editSession}
-        onChange={(provider) =>
+        onChange={(provider) => {
+          const previousKey =
+            current.harness === "pi"
+              ? PI_API_KEYS[current.provider]?.env
+              : null;
+          const environment = { ...current.environment };
+          if (
+            previousKey &&
+            previousKey !== PI_API_KEYS[provider]?.env &&
+            typeof environment[previousKey] === "string"
+          )
+            delete environment[previousKey];
           change({
             provider,
             ...(provider === current.provider ? {} : { model: "" }),
-          })
-        }
+            environment,
+          });
+        }}
       />
+      {current.harness === "pi" && (
+        <PiApiKeyField
+          key={`${current.provider}-${editSession}`}
+          provider={current.provider}
+          current={current}
+          savedKeys={saved.environmentKeys}
+          disabled={disabled}
+          onChange={(environment) => change({ environment })}
+        />
+      )}
       <ModelChoice
         control={control}
         state={state}
@@ -500,14 +618,24 @@ export function AgentDefaultsCard({
         onChange={change}
         onModels={setModels}
       />
-      <Field label="Default effort">
-        <Input
-          disabled={disabled}
-          value={current.effort}
-          placeholder="Not set, for example high"
-          onChange={(event) => change({ effort: event.target.value })}
-        />
-      </Field>
+      <DefaultsChoice
+        label="Default effort"
+        value={current.effort}
+        choices={[
+          { value: "", label: "Not set (use harness default)" },
+          ...effortChoices[current.harness].map((value) => ({
+            value,
+            label:
+              value === "xhigh"
+                ? "Extra high"
+                : value.charAt(0).toUpperCase() + value.slice(1),
+          })),
+        ]}
+        disabled={disabled}
+        resetKey={`${current.harness}-${editSession}`}
+        onSelect={(effort) => change({ effort })}
+        onCustom={(effort) => change({ effort })}
+      />
       <Select
         label="Conversation context"
         variant="field"

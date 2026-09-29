@@ -84,6 +84,9 @@ it("uses harness provider choices, preserves custom IDs, and clears incompatible
   );
   await user.click(await screen.findByRole("option", { name: "Goose" }));
   expect(
+    within(card).getByRole("combobox", { name: "Default harness" }),
+  ).toHaveTextContent("Goose");
+  expect(
     within(card).getByRole("combobox", { name: "Default model" }),
   ).toHaveTextContent("Not set");
   await user.click(
@@ -221,6 +224,173 @@ it("looks up Pi models only on Browse, then recovers from failure using the draf
   expect(
     within(card).getByRole("button", { name: "Save defaults" }),
   ).toBeDisabled();
+});
+
+it("offers a masked Pi API key for model lookup and saves it write-only", async () => {
+  const user = userEvent.setup();
+  const requests: ModelRequest[] = [];
+  const { fixture, control } = setup(0, 0, (f) => {
+    f.data.defaultSettings = {
+      harness: "pi",
+      provider: "openai",
+      model: "gpt-5",
+      effort: "",
+      sessionPolicy: "channel",
+      environmentKeys: ["OPENAI_API_KEY"],
+    };
+    f.data.harnessOptions?.push({
+      command: "/usr/local/bin/buzz-pi-acp",
+      label: "Pi",
+      available: true,
+      providers: [],
+    });
+    f.host.models = {
+      begin: async () => 1,
+      cancel: async () => {},
+      run: async (_ticket, request) => {
+        requests.push(request);
+        return {
+          host: "",
+          models: [{ id: "openai/gpt-5", name: "GPT-5" }],
+          modelOverridden: false,
+          disconnected: false,
+        };
+      },
+    };
+  });
+  await control.refresh();
+  const card = await screen.findByRole("region", { name: "Agent defaults" });
+  const key = within(card).getByLabelText("OpenAI API key");
+  expect(key).toHaveAttribute("type", "password");
+  expect(key).toHaveValue("");
+  expect(key).toHaveAttribute("placeholder", "Saved key unchanged");
+  await user.type(key, "replacement-key");
+  expect(key).toHaveAttribute("type", "password");
+  await user.click(within(card).getByRole("button", { name: "Show API key" }));
+  expect(key).toHaveAttribute("type", "text");
+  await user.click(within(card).getByRole("button", { name: "Browse models" }));
+  expect(await within(card).findByText(/Model choices loaded/)).toBeVisible();
+  expect(requests[0]?.edit?.environment).toEqual({
+    OPENAI_API_KEY: "replacement-key",
+  });
+  await user.click(within(card).getByRole("button", { name: "Save defaults" }));
+  expect(await within(card).findByText("Saved.")).toBeVisible();
+  expect(
+    fixture.calls.find((call) => call.action === "saveDefaults"),
+  ).toMatchObject({
+    payload: { edit: { environment: { OPENAI_API_KEY: "replacement-key" } } },
+  });
+  expect(within(card).getByLabelText("OpenAI API key")).toHaveValue("");
+  expect(within(card).getByLabelText("OpenAI API key")).toHaveAttribute(
+    "placeholder",
+    "Saved key unchanged",
+  );
+  expect(card).not.toHaveTextContent("replacement-key");
+  await user.type(within(card).getByLabelText("OpenAI API key"), "next-key");
+  expect(within(card).getByLabelText("OpenAI API key")).toHaveAttribute(
+    "type",
+    "password",
+  );
+});
+
+it("drops an unsaved Pi key when its provider changes", async () => {
+  const user = userEvent.setup();
+  const { fixture, control } = setup(0, 0, (f) => {
+    f.data.defaultSettings = {
+      harness: "pi",
+      provider: "openai",
+      model: "gpt-5",
+      effort: "",
+      sessionPolicy: "channel",
+      environmentKeys: [],
+    };
+  });
+  await control.refresh();
+  const card = await screen.findByRole("region", { name: "Agent defaults" });
+  await user.type(within(card).getByLabelText("OpenAI API key"), "draft-key");
+  await user.click(
+    within(card).getByRole("combobox", { name: "Default provider" }),
+  );
+  await user.click(
+    await screen.findByRole("option", {
+      name: /Anthropic \(API key may be needed\)/,
+    }),
+  );
+  expect(within(card).queryByLabelText("OpenAI API key")).toBeNull();
+  expect(within(card).getByLabelText("Anthropic API key")).toHaveValue("");
+  expect(within(card).queryByText("OPENAI_API_KEY")).toBeNull();
+  await user.type(
+    within(card).getByLabelText("Anthropic API key"),
+    "another-key",
+  );
+  await user.click(
+    within(card).getByRole("combobox", { name: "Default harness" }),
+  );
+  await user.click(await screen.findByRole("option", { name: "Goose" }));
+  expect(within(card).queryByText("ANTHROPIC_API_KEY")).toBeNull();
+  await user.click(within(card).getByRole("button", { name: "Save defaults" }));
+  expect(
+    fixture.calls.find((call) => call.action === "saveDefaults"),
+  ).toMatchObject({
+    payload: {
+      edit: { harness: "goose", provider: "anthropic", environment: {} },
+    },
+  });
+});
+
+it("saves a selected effort level", async () => {
+  const user = userEvent.setup();
+  const { fixture, control } = setup();
+  await control.refresh();
+  const card = await screen.findByRole("region", { name: "Agent defaults" });
+  await user.click(
+    within(card).getByRole("combobox", { name: "Default effort" }),
+  );
+  expect(await screen.findByRole("option", { name: "Medium" })).toBeVisible();
+  await user.click(screen.getByRole("option", { name: "Medium" }));
+  await user.click(within(card).getByRole("button", { name: "Save defaults" }));
+  expect(await within(card).findByText("Saved.")).toBeVisible();
+  expect(fixture.data.defaultSettings?.effort).toBe("medium");
+});
+
+it("keeps a custom effort editable and clears it on harness changes", async () => {
+  const user = userEvent.setup();
+  const { control } = setup(0, 0, (fixture) => {
+    if (!fixture.data.defaultSettings) throw Error("Missing defaults");
+    fixture.data.defaultSettings.effort = "special-level";
+  });
+  await control.refresh();
+  const card = await screen.findByRole("region", { name: "Agent defaults" });
+  expect(
+    within(card).getByRole("textbox", { name: "Custom default effort ID" }),
+  ).toHaveValue("special-level");
+  await user.click(
+    within(card).getByRole("combobox", { name: "Default harness" }),
+  );
+  await user.click(await screen.findByRole("option", { name: "Goose" }));
+  await user.click(
+    within(card).getByRole("combobox", { name: "Default effort" }),
+  );
+  expect(await screen.findByRole("option", { name: "Off" })).toBeVisible();
+  expect(screen.getByRole("option", { name: "Max" })).toBeVisible();
+  await user.click(screen.getByRole("option", { name: "Max" }));
+  expect(
+    within(card).getByRole("combobox", { name: "Default effort" }),
+  ).toHaveTextContent("Max");
+  await user.click(
+    within(card).getByRole("combobox", { name: "Default harness" }),
+  );
+  await user.click(await screen.findByRole("option", { name: "Pi" }));
+  expect(
+    within(card).getByRole("combobox", { name: "Default harness" }),
+  ).toHaveTextContent("Pi");
+  expect(
+    within(card).getByRole("combobox", { name: "Default effort" }),
+  ).toHaveTextContent("Not set");
+  await user.click(
+    within(card).getByRole("combobox", { name: "Default effort" }),
+  );
+  expect(await screen.findByRole("option", { name: "Off" })).toBeVisible();
 });
 
 it("cancels an in-flight lookup without losing the editable defaults draft", async () => {
