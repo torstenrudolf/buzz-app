@@ -33,6 +33,7 @@ fn main() {
             "relay_http",
             "relay_workflow_runs",
             "relay_upload",
+            "relay_upload_cancel",
             "get_os_idle_seconds",
             "plugin_import_folder",
             "plugin_import_git",

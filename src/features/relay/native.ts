@@ -66,31 +66,48 @@ function nativeResponse(result: {
 }
 
 /** Relay media through the native `buzz-media` scheme (`src-tauri/src/relay.rs`),
- * which adds the Blossom auth `<img>`/`<video>` cannot send. */
+ * which signs each Blossom `get`, including every `Range` request. */
 export function nativeMediaUrl(url: string): string {
   return convertFileSrc(url, "buzz-media");
 }
 
 /** Raw IPC bytes; native code hashes, signs and sends them to `PUT /upload`.
- * IPC cannot abort reqwest, so cancellation only fences the result. */
+ * Aborting settles at once and tells native code to drop the request. */
 async function nativeUpload(origin: string, file: File, signal: AbortSignal) {
   const bytes = await file.arrayBuffer();
   signal.throwIfAborted();
-  const result = await invoke<{
-    status: number;
-    headers: Record<string, string>;
-    body: string;
-  }>("relay_upload", bytes, {
-    headers: {
-      "x-buzz-community": origin,
-      "content-type": file.type || "application/octet-stream",
-    },
+  const id = crypto.randomUUID();
+  let abort = () => {};
+  const aborted = new Promise<never>((_, reject) => {
+    abort = () => {
+      invoke("relay_upload_cancel", { id }).catch(() => {});
+      reject(signal.reason);
+    };
+    signal.addEventListener("abort", abort, { once: true });
+    if (signal.aborted) abort();
   });
-  signal.throwIfAborted();
-  return new Response(result.body, {
-    status: result.status,
-    headers: result.headers,
-  });
+  try {
+    const result = await Promise.race([
+      invoke<{
+        status: number;
+        headers: Record<string, string>;
+        body: string;
+      }>("relay_upload", bytes, {
+        headers: {
+          "x-buzz-upload-id": id,
+          "x-buzz-community": origin,
+          "x-buzz-content-type": file.type || "application/octet-stream",
+        },
+      }),
+      aborted,
+    ]);
+    return new Response(result.body, {
+      status: result.status,
+      headers: result.headers,
+    });
+  } finally {
+    signal.removeEventListener("abort", abort);
+  }
 }
 
 export function nativeRelaySigner(community: string): Signer {

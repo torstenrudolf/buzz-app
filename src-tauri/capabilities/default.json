@@ -11,6 +11,7 @@
     "allow-relay-http",
     "allow-relay-workflow-runs",
     "allow-relay-upload",
+    "allow-relay-upload-cancel",
     "allow-get-os-idle-seconds",
     "allow-plugin-import-folder",
     "allow-plugin-import-git",
