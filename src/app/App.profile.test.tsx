@@ -74,6 +74,13 @@ afterEach(async () => {
 });
 
 async function setup(connectionError = false) {
+  // jsdom has no media queries; responsive geometry is covered in browser tests.
+  vi.stubGlobal("matchMedia", (media: string) => ({
+    media,
+    matches: false,
+    addEventListener() {},
+    removeEventListener() {},
+  }));
   vi.stubGlobal(
     "ResizeObserver",
     class {
