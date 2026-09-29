@@ -4,7 +4,7 @@ import {
   type MemoryListing,
 } from "../agents/memory";
 import { publicationRefusal } from "../developer/traffic";
-import { brokerUpload, type AttachmentUpload } from "./attachments";
+import { brokerUpload, hostUpload, type AttachmentUpload } from "./attachments";
 import type { ChannelKitHost } from "../channel-templates/host";
 import type { KitRecord } from "../channel-templates/model";
 import { workflowHost } from "../workflows/http";
@@ -170,6 +170,10 @@ export interface Signer {
   signEvent(event: EventTemplate): Promise<VerifiedEvent>;
   /** Native hosts authenticate and send exact bytes without exposing credentials to JS. */
   request?(url: string, body: string, signal?: AbortSignal): Promise<Response>;
+  /** Native hosts sign and send `PUT /upload` for these exact bytes. */
+  upload?(file: File, signal: AbortSignal): Promise<Response>;
+  /** Native hosts serve relay `/media/` URLs through an authenticated proxy. */
+  media?(url: string): string;
 }
 
 /** The host's explicit HTTP base wins; otherwise translate the ws(s) relay URL's scheme. */
@@ -999,8 +1003,10 @@ export async function connectSignedTransport(
   const profiling = createRelayProfiler();
   const verify = createEventVerifier();
   const presence = presenceObservation();
+  const upload = signer.upload?.bind(signer);
   return {
     profiling,
+    ...(upload ? { uploadAttachment: hostUpload(upload, httpOrigin) } : {}),
     observePresence: presence.observe,
     async presenceSnapshot(authors, signal) {
       const filters = [{ kinds: [20001], authors, limit: authors.length }];
@@ -1078,7 +1084,8 @@ export async function connectSignedTransport(
     relayHttpUrl: httpOrigin,
     viewer,
     relayAuthor,
-    media: (url, size) => mediaUrl(url, undefined, httpOrigin, size),
+    media: (url, size) =>
+      mediaUrl(url, signer.media?.bind(signer), httpOrigin, size),
     writer: {
       sign: (event) => signer.signEvent(event),
       async publish(event, signal) {

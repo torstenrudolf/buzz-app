@@ -168,23 +168,39 @@ export function brokerUpload(
   endpoint: string,
   origin: string,
 ): AttachmentUpload {
+  return hostUpload(
+    (file, signal) =>
+      fetch(`${endpoint}/upload`, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": file.type || "application/octet-stream" },
+        body: file,
+        signal,
+      }),
+    origin,
+    (file, signal) => prepareMedia(file, endpoint, signal),
+  );
+}
+
+/** Shared upload policy for any host that signs and sends the exact bytes it
+ * is given: limits, timeout, error mapping and descriptor validation. */
+export function hostUpload(
+  send: (file: File, signal: AbortSignal) => Promise<Response>,
+  origin: string,
+  prepare?: (file: File, signal: AbortSignal) => Promise<File>,
+): AttachmentUpload {
   return async (file, signal) => {
     signal.throwIfAborted();
     if (!file.size || file.size > UPLOAD_MAX_BYTES)
       throw new UploadError("size");
-    file = await prepareMedia(file, endpoint, signal);
+    if (prepare) file = await prepare(file, signal);
     signal.throwIfAborted();
     const bounded = AbortSignal.any([
       signal,
       AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
     ]);
-    const response = await fetch(`${endpoint}/upload`, {
-      method: "POST",
-      credentials: "same-origin",
-      headers: { "Content-Type": file.type || "application/octet-stream" },
-      body: file,
-      signal: bounded,
-    });
+    const response = await send(file, bounded);
+    bounded.throwIfAborted();
     if ([401, 403, 413, 429].includes(response.status)) {
       try {
         await response.body?.cancel();
@@ -220,19 +236,29 @@ export function brokerUpload(
         /* Do not replace a parsing failure. */
       }
     }
+    if (!response.ok) {
+      let code: unknown;
+      try {
+        code = (JSON.parse(text) as { code?: unknown } | null)?.code;
+      } catch {
+        /* A relay error body is `{ error }` or plain text. */
+      }
+      throw new UploadError(
+        typeof code === "string" && Object.hasOwn(UPLOAD_FAILURES, code)
+          ? (code as UploadCode)
+          : // The relay's own content rejections (the broker maps these the same way).
+            [400, 415, 422].includes(response.status)
+            ? /metadata/i.test(text)
+              ? "metadata"
+              : "rejected"
+            : "failed",
+      );
+    }
     let body: unknown;
     try {
       body = JSON.parse(text);
     } catch {
       throw new UploadError("invalid");
-    }
-    if (!response.ok) {
-      const code = (body as { code?: string })?.code;
-      throw new UploadError(
-        code && Object.hasOwn(UPLOAD_FAILURES, code)
-          ? (code as UploadCode)
-          : "failed",
-      );
     }
     bounded.throwIfAborted();
     return validateUploadResult(body, origin, file.size, file.name);

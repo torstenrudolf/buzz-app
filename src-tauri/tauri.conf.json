@@ -27,7 +27,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self' blob: 'wasm-unsafe-eval'; connect-src 'self' ipc: http://ipc.localhost https://api.github.com wss:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: https://github.com https://user-images.githubusercontent.com https://private-user-images.githubusercontent.com https://github-production-user-asset-6210df.s3.amazonaws.com https://objects.githubusercontent.com"
+      "csp": "default-src 'self'; script-src 'self' blob: 'wasm-unsafe-eval'; connect-src 'self' ipc: http://ipc.localhost https://api.github.com wss:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: buzz-media: http://buzz-media.localhost; media-src 'self' blob: buzz-media: http://buzz-media.localhost https://github.com https://user-images.githubusercontent.com https://private-user-images.githubusercontent.com https://github-production-user-asset-6210df.s3.amazonaws.com https://objects.githubusercontent.com"
     }
   },
   "bundle": {

@@ -1,6 +1,7 @@
 import { prepareAttachment } from "../messages/prepare-attachment";
 import { mediaUrl } from "../relay/transport";
 import { nativeIdentityEnabled } from "../identity/service";
+import { nativeMediaUrl } from "../relay/native";
 import { connectCommunityTransport } from "../communities/connection";
 import { communityDestination } from "../communities/destination";
 import { avatarSource } from "../../shared/avatar-source";
@@ -22,7 +23,7 @@ export function avatarPreview(
   const source = avatarSource(value);
   if (!source || !community || source.startsWith("data:")) return source;
   const { id, url } = communityDestination(community);
-  if (nativeIdentityEnabled()) return mediaUrl(source, undefined, url);
+  if (nativeIdentityEnabled()) return mediaUrl(source, nativeMediaUrl, url);
   return mediaUrl(
     source,
     (target) =>

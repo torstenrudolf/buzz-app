@@ -202,7 +202,7 @@ fn validate_event(community: &str, event: &EventTemplate) -> Result<()> {
         }
     } else if !matches!(
         event.kind,
-        0 | 7 | 9 | 1984 | 9000 | 9001 | 20001 | 30315 | 40003 | 40100 | 42000
+        0 | 7 | 9 | 1984 | 9000 | 9001 | 20001 | 30030 | 30315 | 40003 | 40100 | 42000
     ) {
         return Err("This event is not supported by the packaged relay connection".into());
     }
@@ -483,10 +483,14 @@ async fn send(
         request = request.header("Accept", "application/nostr+json");
     }
     // Never replay a write after a transport error: it may already have reached the relay.
-    let mut response = request
+    let response = request
         .send()
         .await
         .map_err(|_| "Relay request could not be confirmed")?;
+    read_response(response, MAX_RESPONSE).await
+}
+
+async fn read_response(mut response: reqwest::Response, limit: usize) -> Result<RelayResponse> {
     let status = response.status().as_u16();
     let mut headers = BTreeMap::new();
     for name in ["content-type", "retry-after", "server-timing"] {
@@ -494,6 +498,7 @@ async fn send(
             headers.insert(name.into(), value.into());
         }
     }
+
     let bytes = read_bounded(
         &mut response,
         response_limit,
@@ -509,6 +514,7 @@ async fn send(
         body,
     })
 }
+
 
 async fn read_bounded(
     response: &mut reqwest::Response,
@@ -531,6 +537,286 @@ async fn read_bounded(
     }
     Ok(bytes)
 }
+/// The relay's largest accepted upload (videos).
+const MAX_UPLOAD: usize = 500 * 1024 * 1024;
 
+/// A Blossom `Authorization` value. JS never signs these: `relay_sign` rejects
+/// kind 24242, so a script cannot mint a reusable read or a `delete` proof.
+async fn blossom_auth(
+    host: &IdentityHost,
+    url: &Url,
+    verb: &str,
+    content: &str,
+    mut tags: Vec<Vec<String>>,
+) -> Result<String> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|_| "System clock is unavailable")?
+        .as_secs();
+    // `server` matches the dev broker's `URL.host` (host plus any explicit port).
+    let server = &url[url::Position::BeforeHost..url::Position::AfterPort];
+    tags.extend([
+        vec!["t".into(), verb.into()],
+        vec!["server".into(), server.into()],
+        // The relay's strict NIP-FI window is 60 seconds.
+        vec!["expiration".into(), (now + 60).to_string()],
+    ]);
+    let event = host
+        .sign(EventTemplate {
+            kind: 24242,
+            created_at: now,
+            content: content.into(),
+            tags,
+        })
+        .await?;
+    Ok(format!(
+        "Nostr {}",
+        STANDARD.encode(
+            serde_json::to_vec(&event).map_err(|_| "Could not encode media authentication")?
+        )
+    ))
+}
+
+/// Why this is native: the renderer CSP deliberately has no general HTTPS
+/// `connect-src` (docs/status.md), and JS never signs Blossom tokens. Shared
+/// TypeScript (`hostUpload`) owns limits, error mapping and result validation;
+/// this only hashes, signs and sends the exact bytes it was given.
+#[tauri::command]
+pub(crate) async fn relay_upload(
+    host: tauri::State<'_, IdentityHost>,
+    request: tauri::ipc::Request<'_>,
+) -> Result<RelayResponse> {
+    let header = |name: &str| request.headers().get(name).and_then(|v| v.to_str().ok());
+    let url = origin(header("x-buzz-community").unwrap_or_default())?
+        .join("/upload")
+        .map_err(|_| "Invalid relay path")?;
+    let tauri::ipc::InvokeBody::Raw(body) = request.body() else {
+        return Err("Upload body must be raw bytes".into());
+    };
+    upload(host.inner(), url, header("content-type"), body.clone()).await
+}
+
+async fn upload(
+    host: &IdentityHost,
+    url: Url,
+    kind: Option<&str>,
+    body: Vec<u8>,
+) -> Result<RelayResponse> {
+    if body.is_empty() || body.len() > MAX_UPLOAD {
+        return Err("File exceeds the supported upload limit".into());
+    }
+    let kind = kind
+        .filter(|kind| valid_type(kind))
+        .unwrap_or("application/octet-stream");
+    let hash = format!("{:x}", Sha256::digest(&body));
+    let auth = blossom_auth(
+        host,
+        &url,
+        "upload",
+        "Upload attachment",
+        vec![vec!["x".into(), hash.clone()]],
+    )
+    .await?;
+    let response = client()?
+        .put(url)
+        // Matches UPLOAD_TIMEOUT_MS; the shared client's 30 s suits JSON calls only.
+        .timeout(Duration::from_secs(600))
+        .header("Authorization", auth)
+        .header("Content-Type", kind)
+        .header("X-SHA-256", hash)
+        .body(body)
+        .send()
+        .await
+        .map_err(|_| "Upload did not finish")?;
+    // A Blossom descriptor is small; the shared validator rejects anything else.
+    read_response(response, 8192).await
+}
+
+/// Largest whole-file media response, the relay's image limit. `<video>` and
+/// `<audio>` always send `Range`, so larger files arrive as bounded chunks.
+const MAX_MEDIA: usize = 50 * 1024 * 1024;
+/// Open-ended ranges are shortened so playback starts after one small chunk;
+/// the media element requests the next range itself.
+const MEDIA_CHUNK: u64 = 4 * 1024 * 1024;
+/// The relay's own cap on a single 206 response.
+const MAX_MEDIA_RANGE: usize = 16 * 1024 * 1024;
+
+/// Why this is native: every relay `GET /media/*` needs a Blossom
+/// `Authorization` header, including each `Range` request a player makes.
+/// `<img>`, `<video>` and `<audio>` cannot attach headers, and WKWebView runs
+/// no service workers on the `tauri://` origin, so no shared JS can add one.
+/// Buffering whole files into `blob:` URLs would break seeking and hold up to
+/// 500 MiB in memory. This handler signs a fresh `get` token per request and
+/// forwards the player's `Range`, and nothing else; URL choice stays in
+/// shared TypeScript (`mediaUrl`).
+pub(crate) fn media_protocol<R: tauri::Runtime>(
+    ctx: tauri::UriSchemeContext<'_, R>,
+    request: tauri::http::Request<Vec<u8>>,
+    responder: tauri::UriSchemeResponder,
+) {
+    use tauri::Manager as _;
+    let host = ctx.app_handle().state::<IdentityHost>().inner().clone();
+    tauri::async_runtime::spawn(async move {
+        let response = match media_request(&request) {
+            Ok((url, range)) => fetch_media(&host, url, range).await,
+            Err(status) => Err(status),
+        };
+        responder.respond(response.unwrap_or_else(|status| {
+            tauri::http::Response::builder()
+                .status(status)
+                .body(Vec::new())
+                .expect("static response")
+        }));
+    });
+}
+
+/// `buzz-media://localhost/<percent-encoded relay media URL>`, the shape of
+/// `convertFileSrc(url, "buzz-media")` on every desktop platform.
+fn media_request(
+    request: &tauri::http::Request<Vec<u8>>,
+) -> std::result::Result<(Url, Option<String>), u16> {
+    if request.method() != tauri::http::Method::GET {
+        return Err(405);
+    }
+    let encoded = request.uri().path().strip_prefix('/').ok_or(400u16)?;
+    let target = percent_encoding::percent_decode_str(encoded)
+        .decode_utf8()
+        .map_err(|_| 400u16)?;
+    let url = media_url(&target).ok_or(403u16)?;
+    let range = match request.headers().get("range") {
+        None => None,
+        Some(value) => Some(media_range(value.to_str().map_err(|_| 416u16)?).ok_or(416u16)?),
+    };
+    Ok((url, range))
+}
+
+/// Only relay-hosted blobs on an HTTPS origin; never an arbitrary URL.
+fn media_url(target: &str) -> Option<Url> {
+    let url = Url::parse(target).ok()?;
+    let name = url.path().strip_prefix("/media/")?;
+    let (hash, extension) = name.split_once('.').unwrap_or((name, ""));
+    let extension_ok = extension.is_empty()
+        || extension == "thumb.jpg"
+        || (extension.len() <= 8
+            && extension
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit()));
+    let mut base = url.clone();
+    base.set_path("/");
+    (origin(base.as_str()).is_ok()
+        && url.query().is_none()
+        && url.fragment().is_none()
+        && hash.len() == 64
+        && hash.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+        && extension_ok)
+        .then_some(url)
+}
+
+/// One `bytes=START-[END]` range, bounded so a response fits one buffer.
+fn media_range(value: &str) -> Option<String> {
+    let (start, end) = value.strip_prefix("bytes=")?.split_once('-')?;
+    let start: u64 = start.parse().ok()?;
+    let last = start + MEDIA_CHUNK - 1;
+    let end = if end.is_empty() {
+        last
+    } else {
+        end.parse::<u64>().ok()?.min(last)
+    };
+    (end >= start).then(|| format!("bytes={start}-{end}"))
+}
+
+async fn fetch_media(
+    host: &IdentityHost,
+    url: Url,
+    range: Option<String>,
+) -> std::result::Result<tauri::http::Response<Vec<u8>>, u16> {
+    let auth = blossom_auth(host, &url, "get", "Get buzz-media", Vec::new())
+        .await
+        .map_err(|_| 401u16)?;
+    let mut request = client()
+        .map_err(|_| 502u16)?
+        .get(url)
+        .timeout(Duration::from_secs(120))
+        .header("Authorization", auth);
+    if let Some(range) = &range {
+        request = request.header("Range", range);
+    }
+    let mut upstream = request.send().await.map_err(|_| 502u16)?;
+    let status = upstream.status().as_u16();
+    if !matches!(status, 200 | 206) {
+        return Err(status);
+    }
+    let limit = if status == 206 {
+        MAX_MEDIA_RANGE
+    } else {
+        MAX_MEDIA
+    };
+    if upstream
+        .content_length()
+        .is_some_and(|length| length > limit as u64)
+    {
+        return Err(413);
+    }
+    let header = |name: &str| {
+        upstream
+            .headers()
+            .get(name)
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_owned)
+    };
+    let (kind, disposition) = media_type(header("content-type").as_deref());
+    let mut response = tauri::http::Response::builder()
+        .status(status)
+        .header("Content-Type", kind)
+        .header("Accept-Ranges", "bytes")
+        .header("Cache-Control", "private, max-age=3600")
+        .header("X-Content-Type-Options", "nosniff");
+    if disposition {
+        response = response.header("Content-Disposition", "attachment");
+    }
+    if let Some(value) = header("content-range") {
+        response = response.header("Content-Range", value);
+    }
+    let mut body = Vec::new();
+    while let Some(chunk) = upstream.chunk().await.map_err(|_| 502u16)? {
+        if body.len() + chunk.len() > limit {
+            return Err(413);
+        }
+        body.extend_from_slice(&chunk);
+    }
+    response.body(body).map_err(|_| 502)
+}
+
+fn valid_type(kind: &str) -> bool {
+    let token = |part: &str| {
+        !part.is_empty()
+            && part
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"!#$&^_.+-".contains(&b))
+    };
+    kind.split_once('/')
+        .is_some_and(|(a, b)| token(a) && token(b))
+}
+
+/// Mirrors the dev broker's `/api/relay/media`: render images (never SVG),
+/// video and audio; everything else is a download.
+fn media_type(value: Option<&str>) -> (String, bool) {
+    let kind = value
+        .unwrap_or_default()
+        .split(';')
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+    let inline = valid_type(&kind)
+        && ((kind.starts_with("image/") && kind != "image/svg+xml")
+            || kind.starts_with("video/")
+            || kind.starts_with("audio/"));
+    if inline {
+        (kind, false)
+    } else {
+        ("application/octet-stream".into(), true)
+    }
+}
 #[cfg(test)]
 mod tests;

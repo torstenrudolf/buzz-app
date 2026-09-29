@@ -75,6 +75,7 @@ fn fixture_server(response: &'static str) -> (Url, std::thread::JoinHandle<(Stri
                             .strip_prefix("content-length: ")
                             .map(str::to_owned)
                     })
+
                     .map(|value| value.parse().unwrap())
                     .unwrap_or(0);
                 if body.len() == length {
@@ -245,6 +246,7 @@ async fn signing_is_verifiable_and_does_not_export_a_key() {
         .is_err());
 }
 
+
 #[test]
 fn workflow_history_is_fixed_and_cannot_retarget_native_http() {
     let id = "11111111-1111-4111-8111-111111111111";
@@ -381,6 +383,7 @@ fn shared_kind_five_signer_accepts_message_and_reaction_deletion_only_in_broker_
     event.tags.push(vec!["a".into(), "30620:other:id".into()]);
     assert!(validate_event("https://relay.test", &event).is_err());
 }
+
 
 #[test]
 fn native_write_commands_reach_handlers_through_production_ipc() {
@@ -584,4 +587,195 @@ async fn discovery_body_is_bounded_for_length_and_chunked_transfer() {
         );
         task.join().unwrap();
     }
+}
+
+#[test]
+fn js_signs_emoji_sets_but_never_blossom_tokens() {
+    let template = |kind| EventTemplate {
+        kind,
+        created_at: 1,
+        content: "Upload attachment".into(),
+        tags: vec![vec!["t".into(), "upload".into()]],
+    };
+    assert!(validate_event("https://relay.test", &template(30030)).is_ok());
+    assert!(validate_event("https://relay.test", &template(24242)).is_err());
+}
+
+#[test]
+fn media_proxy_only_reaches_relay_blobs() {
+    let hash = "a".repeat(64);
+    for target in [
+        format!("https://relay.test/media/{hash}"),
+        format!("https://relay.test/media/{hash}.png"),
+        format!("https://relay.test:8443/media/{hash}.thumb.jpg"),
+    ] {
+        assert!(media_url(&target).is_some(), "{target}");
+    }
+    for target in [
+        format!("http://relay.test/media/{hash}"),
+        format!("https://u:p@relay.test/media/{hash}"),
+        format!("https://relay.test/media/{hash}?x=1"),
+        format!("https://relay.test/media/{hash}#x"),
+        format!("https://relay.test/upload/{hash}"),
+        format!("https://relay.test/media/{}", "A".repeat(64)),
+        format!("https://relay.test/media/{hash}/../../query"),
+        format!("https://relay.test/media/{hash}.PNG"),
+        "https://relay.test/media/abc".into(),
+        "file:///etc/passwd".into(),
+    ] {
+        assert!(media_url(&target).is_none(), "{target}");
+    }
+}
+
+#[test]
+fn media_ranges_are_single_and_bounded() {
+    assert_eq!(media_range("bytes=0-").as_deref(), Some("bytes=0-4194303"));
+    assert_eq!(media_range("bytes=10-20").as_deref(), Some("bytes=10-20"));
+    assert_eq!(
+        media_range("bytes=100-999999999").as_deref(),
+        Some("bytes=100-4194403")
+    );
+    for value in [
+        "bytes=-500",
+        "bytes=5-1",
+        "bytes=0-1,4-5",
+        "items=0-1",
+        "bytes=x-",
+    ] {
+        assert!(media_range(value).is_none(), "{value}");
+    }
+}
+
+#[test]
+fn media_types_render_only_images_video_and_audio() {
+    assert_eq!(
+        media_type(Some("image/PNG; x=1")),
+        ("image/png".into(), false)
+    );
+    assert_eq!(media_type(Some("video/mp4")), ("video/mp4".into(), false));
+    assert_eq!(media_type(Some("audio/mpeg")), ("audio/mpeg".into(), false));
+    for value in [
+        Some("image/svg+xml"),
+        Some("text/html"),
+        Some("image/"),
+        None,
+    ] {
+        assert_eq!(
+            media_type(value),
+            ("application/octet-stream".into(), true),
+            "{value:?}"
+        );
+    }
+}
+
+fn blossom_event(headers: &str) -> serde_json::Value {
+    let encoded = headers
+        .lines()
+        .find_map(|line| line.strip_prefix("authorization: Nostr "))
+        .unwrap();
+    let event: serde_json::Value =
+        serde_json::from_slice(&STANDARD.decode(encoded).unwrap()).unwrap();
+    verify(&event);
+    event
+}
+
+fn tag<'a>(event: &'a serde_json::Value, name: &str) -> Vec<&'a str> {
+    event["tags"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|tag| tag[0] == name)
+        .map(|tag| tag[1].as_str().unwrap())
+        .collect()
+}
+
+/// The relay's strict NIP-FI rules: one each of `t`, `server`, `expiration`,
+/// expiry within 60 s of creation, non-empty content.
+fn assert_strict(event: &serde_json::Value, verb: &str, server: &str) {
+    assert_eq!(event["kind"], 24242);
+    assert_ne!(event["content"], "");
+    assert_eq!(tag(event, "t"), [verb]);
+    assert_eq!(tag(event, "server"), [server]);
+    let expiration: u64 = tag(event, "expiration")[0].parse().unwrap();
+    assert_eq!(tag(event, "expiration").len(), 1);
+    assert_eq!(expiration, event["created_at"].as_u64().unwrap() + 60);
+}
+
+#[tokio::test]
+async fn media_proxy_signs_a_fresh_get_and_forwards_only_the_range() {
+    let (base, task) = fixture_server(
+        "HTTP/1.1 206 Partial Content\r\nContent-Type: text/html\r\nContent-Range: bytes 0-3/10\r\nContent-Length: 4\r\nConnection: close\r\n\r\n<b>x",
+    );
+    let url = base.join(&format!("/media/{}", "a".repeat(64))).unwrap();
+    let response = fetch_media(
+        &IdentityHost::fixture(),
+        url.clone(),
+        Some("bytes=0-3".into()),
+    )
+    .await
+    .unwrap();
+    assert_eq!(response.status(), 206);
+    assert_eq!(response.body(), b"<b>x");
+    let header = |name| response.headers().get(name).unwrap().to_str().unwrap();
+    assert_eq!(header("content-type"), "application/octet-stream");
+    assert_eq!(header("content-disposition"), "attachment");
+    assert_eq!(header("x-content-type-options"), "nosniff");
+    assert_eq!(header("content-range"), "bytes 0-3/10");
+    let (headers, _) = task.join().unwrap();
+    assert!(headers.starts_with(&format!("GET {} ", url.path())));
+    assert!(headers.lines().any(|line| line == "range: bytes=0-3"));
+    assert!(!headers.contains("cookie"));
+    let server = &url[url::Position::BeforeHost..url::Position::AfterPort];
+    assert_strict(&blossom_event(&headers), "get", server);
+}
+
+#[tokio::test]
+async fn media_proxy_passes_relay_denials_through_without_a_body() {
+    let (base, task) = fixture_server(
+        "HTTP/1.1 401 Unauthorized\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}",
+    );
+    let url = base.join(&format!("/media/{}", "b".repeat(64))).unwrap();
+    assert_eq!(
+        fetch_media(&IdentityHost::fixture(), url, None)
+            .await
+            .unwrap_err(),
+        401
+    );
+    task.join().unwrap();
+}
+
+#[tokio::test]
+async fn upload_signs_the_exact_bytes_it_sends() {
+    let (base, task) = fixture_server(
+        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}",
+    );
+    let url = base.join("/upload").unwrap();
+    // ASCII: the fixture server compares lengths on decoded text.
+    let body = b"PNG fixture bytes".to_vec();
+    let hash = format!("{:x}", Sha256::digest(&body));
+    let result = upload(
+        &IdentityHost::fixture(),
+        url.clone(),
+        Some("image/png"),
+        body.clone(),
+    )
+    .await
+    .unwrap();
+    assert_eq!((result.status, result.body.as_str()), (200, "{}"));
+    let (headers, sent) = task.join().unwrap();
+    assert_eq!(sent.as_bytes(), body);
+    assert!(headers.starts_with("PUT /upload "));
+    assert!(headers
+        .lines()
+        .any(|line| line == format!("x-sha-256: {hash}")));
+    assert!(headers
+        .lines()
+        .any(|line| line == "content-type: image/png"));
+    let event = blossom_event(&headers);
+    let server = &url[url::Position::BeforeHost..url::Position::AfterPort];
+    assert_strict(&event, "upload", server);
+    assert_eq!(tag(&event, "x"), [hash.as_str()]);
+    assert!(upload(&IdentityHost::fixture(), url, None, Vec::new())
+        .await
+        .is_err());
 }

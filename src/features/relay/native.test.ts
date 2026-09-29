@@ -14,6 +14,8 @@ import { createMessages } from "./messages";
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),
   isTauri: () => true,
+  convertFileSrc: (path: string, protocol: string) =>
+    `${protocol}://localhost/${encodeURIComponent(path)}`,
 }));
 const viewer = keypair(),
   relay = keypair();
@@ -30,6 +32,8 @@ let respond: (
   | { status?: number; body: unknown }
   | Promise<{ status?: number; body: unknown }>;
 const requests: Request[] = [];
+const uploads: { bytes: Uint8Array; headers: Record<string, string> }[] = [];
+let uploadResponse: () => { status?: number; body: unknown };
 const owners: ReturnType<typeof createOutbox>[] = [];
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -49,7 +53,9 @@ beforeEach(() => {
       throw new Error("Packaged connections must not call the dev broker");
     }),
   );
-  vi.mocked(invoke).mockImplementation(async (command, args) => {
+  uploads.length = 0;
+  uploadResponse = () => ({ status: 500, body: "" });
+  vi.mocked(invoke).mockImplementation(async (command, args, options) => {
     if (command === "identity_restore") return viewer.pubkey;
     if (command === "relay_sign") {
       expect(
@@ -68,6 +74,21 @@ beforeEach(() => {
         status: result.status ?? 200,
         headers: {},
         body: JSON.stringify(result.body),
+      };
+    }
+    if (command === "relay_upload") {
+      uploads.push({
+        bytes: new Uint8Array(args as ArrayBuffer),
+        headers: (options as { headers: Record<string, string> }).headers,
+      });
+      const result = uploadResponse();
+      return {
+        status: result.status ?? 200,
+        headers: {},
+        body:
+          typeof result.body === "string"
+            ? result.body
+            : JSON.stringify(result.body),
       };
     }
     throw new Error(`Unexpected native command: ${command}`);
@@ -449,6 +470,7 @@ it.each(["online", "tampered", "wrong-author", "empty"] as const)(
   },
 );
 
+
 it.each(["message", "reaction"] as const)(
   "publishes native %s removal with the broker's kind-5 tags",
   async (target) => {
@@ -641,6 +663,7 @@ it("holds the shared admission lease until a cancelled native history request se
   expect(requests.at(-1)?.path).toBe("/query");
 });
 
+
 it("advertises purpose-bound channel capabilities and gates creation on NIP-29", async () => {
   const transport = await connectNativeTransport(community);
   expect(transport.archiveAuthority).toBe(relay.pubkey);
@@ -796,3 +819,88 @@ it("opens direct messages through a purpose-bound command and validates the resu
     transport.openDirectMessage([relay.pubkey], new AbortController().signal),
   ).rejects.toThrow("invalid direct message");
 });
+
+const hash = "c".repeat(64);
+it("routes relay media through the authenticated native scheme only", async () => {
+  const transport = await connectNativeTransport(community);
+  const media = `${community}/media/${hash}.png`;
+  expect(transport.media(media)).toBe(
+    `buzz-media://localhost/${encodeURIComponent(media)}`,
+  );
+  expect(transport.media(media, "small")).toBe(
+    `buzz-media://localhost/${encodeURIComponent(`${community}/media/${hash}.thumb.jpg`)}`,
+  );
+  expect(transport.media("https://images.test/cat.png")).toBe(
+    "https://images.test/cat.png",
+  );
+  expect(transport.media("http://images.test/cat.png")).toBeUndefined();
+});
+
+it("publishes custom emoji sets", async () => {
+  const transport = await connectNativeTransport(community);
+  expect(transport.writer?.kinds).toContain(30030);
+});
+
+it("uploads exact bytes natively and validates the relay descriptor", async () => {
+  const transport = await connectNativeTransport(community);
+  assert(transport.uploadAttachment);
+  uploadResponse = () => ({
+    body: {
+      url: `${community}/media/${hash}.png`,
+      type: "image/png",
+      size: 3,
+      sha256: hash,
+    },
+  });
+  const file = new File([new Uint8Array([1, 2, 3])], "a.png", {
+    type: "image/png",
+  });
+  await expect(
+    transport.uploadAttachment(file, new AbortController().signal),
+  ).resolves.toEqual({
+    name: "a.png",
+    url: `${community}/media/${hash}.png`,
+    type: "image/png",
+    size: 3,
+    sha256: hash,
+  });
+  expect(uploads).toEqual([
+    {
+      bytes: new Uint8Array([1, 2, 3]),
+      headers: { "x-buzz-community": community, "content-type": "image/png" },
+    },
+  ]);
+  uploadResponse = () => ({
+    body: {
+      url: `https://other.test/media/${hash}.png`,
+      type: "image/png",
+      size: 3,
+      sha256: hash,
+    },
+  });
+  await expect(
+    transport.uploadAttachment(file, new AbortController().signal),
+  ).rejects.toMatchObject({ code: "invalid" });
+});
+
+it.each([
+  [401, "", "denied"],
+  [413, "", "size"],
+  [429, "", "capacity"],
+  [422, { error: "metadata forbidden" }, "metadata"],
+  [415, { error: "unsupported container" }, "rejected"],
+  [500, "internal error", "failed"],
+])(
+  "maps relay upload status %i to a user-facing failure",
+  async (status, body, code) => {
+    const transport = await connectNativeTransport(community);
+    assert(transport.uploadAttachment);
+    uploadResponse = () => ({ status, body });
+    await expect(
+      transport.uploadAttachment(
+        new File(["x"], "a.bin"),
+        new AbortController().signal,
+      ),
+    ).rejects.toMatchObject({ code });
+  },
+);

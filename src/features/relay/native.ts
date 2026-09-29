@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import type { EventTemplate } from "nostr-tools";
 import { communityDestination } from "../communities/destination";
 import { eventDto, type RelayEvent } from "./events";
@@ -26,12 +26,14 @@ import {
 } from "./transport";
 
 export const nativeWriteKinds = [
+
   30078,
   7,
   9,
   1984,
   9000,
   9001,
+  30030,
   30315,
   40003,
   40100,
@@ -78,6 +80,34 @@ function nativeResponse(result: {
   );
 }
 
+/** Relay media through the native `buzz-media` scheme (`src-tauri/src/relay.rs`),
+ * which adds the Blossom auth `<img>`/`<video>` cannot send. */
+export function nativeMediaUrl(url: string): string {
+  return convertFileSrc(url, "buzz-media");
+}
+
+/** Raw IPC bytes; native code hashes, signs and sends them to `PUT /upload`.
+ * IPC cannot abort reqwest, so cancellation only fences the result. */
+async function nativeUpload(origin: string, file: File, signal: AbortSignal) {
+  const bytes = await file.arrayBuffer();
+  signal.throwIfAborted();
+  const result = await invoke<{
+    status: number;
+    headers: Record<string, string>;
+    body: string;
+  }>("relay_upload", bytes, {
+    headers: {
+      "x-buzz-community": origin,
+      "content-type": file.type || "application/octet-stream",
+    },
+  });
+  signal.throwIfAborted();
+  return new Response(result.body, {
+    status: result.status,
+    headers: result.headers,
+  });
+}
+
 export function nativeRelaySigner(community: string): Signer {
   const origin = communityDestination(community).url;
   return {
@@ -107,6 +137,8 @@ export function nativeRelaySigner(community: string): Signer {
         signal,
       );
     },
+    upload: (file, signal) => nativeUpload(origin, file, signal),
+    media: nativeMediaUrl,
   };
 }
 
