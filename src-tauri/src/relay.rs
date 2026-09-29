@@ -3,7 +3,12 @@ use crate::identity::{EventTemplate, IdentityHost};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
-use std::{collections::BTreeMap, sync::OnceLock, time::Duration};
+use std::{
+    collections::{BTreeMap, HashMap},
+    sync::OnceLock,
+    time::Duration,
+};
+use tokio::sync::oneshot;
 use url::Url;
 
 mod channel_writes;
@@ -577,23 +582,95 @@ async fn blossom_auth(
     ))
 }
 
-/// Why this is native: the renderer CSP deliberately has no general HTTPS
-/// `connect-src` (docs/status.md), and JS never signs Blossom tokens. Shared
-/// TypeScript (`hostUpload`) owns limits, error mapping and result validation;
-/// this only hashes, signs and sends the exact bytes it was given.
+/// In-flight uploads by renderer-chosen ID. `None` records a cancel that
+/// arrived before its upload, so the upload never starts.
+#[derive(Default)]
+pub(crate) struct Uploads(std::sync::Mutex<HashMap<String, Option<oneshot::Sender<()>>>>);
+
+impl Uploads {
+    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, Option<oneshot::Sender<()>>>> {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Registers `id`, or returns `None` when it was already cancelled.
+    fn start(&self, id: &str) -> Result<Option<oneshot::Receiver<()>>> {
+        let mut uploads = self.lock();
+        match uploads.remove(id) {
+            Some(None) => return Ok(None),
+            Some(Some(sender)) => {
+                uploads.insert(id.into(), Some(sender));
+                return Err("Upload is already in progress".into());
+            }
+            None if uploads.len() >= 64 => return Err("Uploads are busy".into()),
+            None => {}
+        }
+        let (sender, receiver) = oneshot::channel();
+        uploads.insert(id.into(), Some(sender));
+        Ok(Some(receiver))
+    }
+
+    fn cancel(&self, id: &str) {
+        let mut uploads = self.lock();
+        match uploads.remove(id) {
+            Some(Some(sender)) => drop(sender.send(())),
+            Some(None) => {}
+            None if uploads.len() < 64 => drop(uploads.insert(id.into(), None)),
+            None => {}
+        }
+    }
+
+    fn finish(&self, id: &str) {
+        self.lock().remove(id);
+    }
+}
+
+fn upload_id(value: Option<&str>) -> Result<&str> {
+    value
+        .filter(|id| {
+            (1..=64).contains(&id.len())
+                && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        })
+        .ok_or_else(|| "Invalid upload ID".into())
+}
+
+/// Hashes, signs (`t=upload` + `x`) and sends `PUT /upload` for the exact raw
+/// IPC bytes. Shared TypeScript (`hostUpload`) owns limits, error mapping and
+/// descriptor validation, as it does for the dev broker.
 #[tauri::command]
 pub(crate) async fn relay_upload(
     host: tauri::State<'_, IdentityHost>,
+    uploads: tauri::State<'_, Uploads>,
     request: tauri::ipc::Request<'_>,
 ) -> Result<RelayResponse> {
     let header = |name: &str| request.headers().get(name).and_then(|v| v.to_str().ok());
+    let id = upload_id(header("x-buzz-upload-id"))?;
     let url = origin(header("x-buzz-community").unwrap_or_default())?
         .join("/upload")
         .map_err(|_| "Invalid relay path")?;
     let tauri::ipc::InvokeBody::Raw(body) = request.body() else {
         return Err("Upload body must be raw bytes".into());
     };
-    upload(host.inner(), url, header("content-type"), body.clone()).await
+    // Tauri sets raw IPC `Content-Type` itself, so the file type travels separately.
+    let kind = header("x-buzz-content-type");
+    let Some(cancelled) = uploads.start(id)? else {
+        return Err("Upload cancelled".into());
+    };
+    // Dropping the request future closes the connection, so a cancelled upload
+    // stops sending and releases its buffer.
+    let result = tokio::select! {
+        result = upload(host.inner(), url, kind, body.clone()) => result,
+        _ = cancelled => Err("Upload cancelled".into()),
+    };
+    uploads.finish(id);
+    result
+}
+
+#[tauri::command]
+pub(crate) fn relay_upload_cancel(uploads: tauri::State<'_, Uploads>, id: String) -> Result<()> {
+    uploads.cancel(upload_id(Some(&id))?);
+    Ok(())
 }
 
 async fn upload(
@@ -632,23 +709,21 @@ async fn upload(
     read_response(response, 8192).await
 }
 
-/// Largest whole-file media response, the relay's image limit. `<video>` and
-/// `<audio>` always send `Range`, so larger files arrive as bounded chunks.
-const MAX_MEDIA: usize = 50 * 1024 * 1024;
+/// Largest whole-file media response: the relay's document limit, which also
+/// covers images. Only video can be larger; `<video>` fetches it by `Range`.
+const MAX_MEDIA: usize = 100 * 1024 * 1024;
 /// Open-ended ranges are shortened so playback starts after one small chunk;
 /// the media element requests the next range itself.
 const MEDIA_CHUNK: u64 = 4 * 1024 * 1024;
 /// The relay's own cap on a single 206 response.
 const MAX_MEDIA_RANGE: usize = 16 * 1024 * 1024;
 
-/// Why this is native: every relay `GET /media/*` needs a Blossom
-/// `Authorization` header, including each `Range` request a player makes.
-/// `<img>`, `<video>` and `<audio>` cannot attach headers, and WKWebView runs
-/// no service workers on the `tauri://` origin, so no shared JS can add one.
-/// Buffering whole files into `blob:` URLs would break seeking and hold up to
-/// 500 MiB in memory. This handler signs a fresh `get` token per request and
-/// forwards the player's `Range`, and nothing else; URL choice stays in
-/// shared TypeScript (`mediaUrl`).
+/// `buzz-media://` serves relay `GET /media/*` to `<img>`, `<video>` and
+/// `<audio>`, which cannot send the required Blossom `Authorization` header.
+/// Each request gets a fresh `get` token and forwards only the player's
+/// `Range`, so playback streams and seeks. Which URLs use it is decided in
+/// shared TypeScript (`mediaUrl`); this checks only the relay-blob URL shape,
+/// not saved-community membership (Rust keeps no community list).
 pub(crate) fn media_protocol<R: tauri::Runtime>(
     ctx: tauri::UriSchemeContext<'_, R>,
     request: tauri::http::Request<Vec<u8>>,
@@ -716,7 +791,7 @@ fn media_url(target: &str) -> Option<Url> {
 fn media_range(value: &str) -> Option<String> {
     let (start, end) = value.strip_prefix("bytes=")?.split_once('-')?;
     let start: u64 = start.parse().ok()?;
-    let last = start + MEDIA_CHUNK - 1;
+    let last = start.checked_add(MEDIA_CHUNK - 1)?;
     let end = if end.is_empty() {
         last
     } else {

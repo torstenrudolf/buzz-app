@@ -9,7 +9,6 @@
     "allow-identity-export",
     "allow-relay-sign",
     "allow-relay-http",
-
     "allow-relay-workflow-runs",
     "allow-relay-channel-sign",
     "allow-relay-channel-publish",
@@ -18,6 +17,7 @@
     "allow-relay-kit-decode",
     "allow-relay-direct-message",
     "allow-relay-upload",
+    "allow-relay-upload-cancel",
     "allow-get-os-idle-seconds",
     "allow-plugin-import-folder",
     "allow-plugin-import-git",

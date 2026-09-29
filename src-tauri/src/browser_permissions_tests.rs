@@ -66,7 +66,6 @@ fn native_command_permissions_allow_only_main_webview() {
         "identity_export",
         "relay_sign",
         "relay_http",
-
         "relay_workflow_runs",
         "relay_channel_sign",
         "relay_channel_publish",
@@ -75,6 +74,7 @@ fn native_command_permissions_allow_only_main_webview() {
         "relay_kit_decode",
         "relay_direct_message",
         "relay_upload",
+        "relay_upload_cancel",
         "get_os_idle_seconds",
         "plugin_import_folder",
         "plugin_import_git",

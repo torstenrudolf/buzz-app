@@ -145,8 +145,9 @@ request-owned, cancelled on disconnect and cleaned before admission is released.
 Picker/paste/drop share the same tab-local draft. Files must finish uploading
 before Send; navigation pauses unfinished uploads for explicit Retry. Reload loses
 unsent files. Background Send, attachment-first new sessions and UX polish are
-separate work. Live uploads currently use the development broker, not a packaged
-native upload implementation.
+separate work. Live uploads use the development broker in dev runs and the
+native `relay_upload` path in packaged desktop builds. Packaged HEIC and non-MP4
+video files are not converted by the broker and may be rejected by the relay.
 
 The broker supports reads, live traffic and basic message sending **as your real
 account**. Profile changes and invite admission can also write to real communities.

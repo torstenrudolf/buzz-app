@@ -34,6 +34,8 @@ let respond: (
 const requests: Request[] = [];
 const uploads: { bytes: Uint8Array; headers: Record<string, string> }[] = [];
 let uploadResponse: () => { status?: number; body: unknown };
+const cancels: string[] = [];
+let hangUploads = false;
 const owners: ReturnType<typeof createOutbox>[] = [];
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -54,6 +56,8 @@ beforeEach(() => {
     }),
   );
   uploads.length = 0;
+  cancels.length = 0;
+  hangUploads = false;
   uploadResponse = () => ({ status: 500, body: "" });
   vi.mocked(invoke).mockImplementation(async (command, args, options) => {
     if (command === "identity_restore") return viewer.pubkey;
@@ -76,7 +80,12 @@ beforeEach(() => {
         body: JSON.stringify(result.body),
       };
     }
+    if (command === "relay_upload_cancel") {
+      cancels.push((args as { id: string }).id);
+      return null;
+    }
     if (command === "relay_upload") {
+      if (hangUploads) return new Promise(() => {});
       uploads.push({
         bytes: new Uint8Array(args as ArrayBuffer),
         headers: (options as { headers: Record<string, string> }).headers,
@@ -867,7 +876,11 @@ it("uploads exact bytes natively and validates the relay descriptor", async () =
   expect(uploads).toEqual([
     {
       bytes: new Uint8Array([1, 2, 3]),
-      headers: { "x-buzz-community": community, "content-type": "image/png" },
+      headers: {
+        "x-buzz-upload-id": expect.stringMatching(/^[0-9a-f-]{36}$/),
+        "x-buzz-community": community,
+        "x-buzz-content-type": "image/png",
+      },
     },
   ]);
   uploadResponse = () => ({
@@ -904,3 +917,25 @@ it.each([
     ).rejects.toMatchObject({ code });
   },
 );
+
+it("settles a cancelled native upload at once and cancels it natively", async () => {
+  const transport = await connectNativeTransport(community);
+  assert(transport.uploadAttachment);
+  hangUploads = true;
+  const controller = new AbortController();
+  const pending = transport.uploadAttachment(
+    new File(["x"], "a.bin"),
+    controller.signal,
+  );
+  await vi.waitFor(() =>
+    expect(vi.mocked(invoke).mock.calls.at(-1)?.[0]).toBe("relay_upload"),
+  );
+  const [, , options] = vi.mocked(invoke).mock.calls.at(-1) ?? [];
+  controller.abort();
+  await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+  expect(cancels).toEqual([
+    (options as { headers: Record<string, string> }).headers[
+      "x-buzz-upload-id"
+    ],
+  ]);
+});

@@ -97,9 +97,12 @@ the user must inspect the conversation before explicitly sending a new message.
 Protected media and uploads are native, because the webview cannot attach Blossom
 (kind 24242) authentication itself: `<img>`, `<video>` and `<audio>` send no custom
 headers, and the CSP keeps `connect-src` closed to general HTTPS. Relay `/media/`
-URLs render through the `buzz-media` URI scheme, which signs a fresh 60-second
-`get` token per request and forwards only a bounded single `Range`; non-image/
-video/audio types (and SVG) are served as downloads with `nosniff`. `relay_upload`
+URLs selected by shared TypeScript render through the `buzz-media` URI scheme,
+which validates HTTPS and the `/media/<hash>` URL shape but does not enforce
+saved-community membership; the selected server receives a short-lived token
+scoped to its origin. The scheme signs a fresh 60-second `get` token per request
+and forwards only a bounded single `Range`; non-image/video/audio types (and SVG)
+are served as downloads with `nosniff`. `relay_upload`
 hashes, signs (`upload` + `x`) and sends the exact bytes JavaScript passes it;
 shared TypeScript (`hostUpload`) owns limits, error mapping and descriptor
 validation. JavaScript never signs kind 24242. HEIC and non-MP4 video conversion
