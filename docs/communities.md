@@ -98,10 +98,12 @@ not a plugin key service.
 Packaged builds do not include the broker. Native macOS, Windows and Linux
 [identity import/create](identity.md) and the shared native relay adapter provide
 discovery, admission, profile publication, authenticated reads and supported event
-writes. Windows/Linux installed-app acceptance remains unverified. Community
-creation/removal and background connection eviction are not implemented. Native
-agent enrollment has its own [local control contract](agent-control.md). Avatar
-uploads still require the development media host. Agents have local
+writes. Native invite minting and relay-advertised KLIPY GIF search use the same
+captured HTTPS community; neither requires the development broker. Windows/Linux
+installed-app acceptance remains unverified. Community creation/removal and
+background connection eviction are not implemented. Native agent enrollment has
+its own [local control contract](agent-control.md). Avatar uploads still require
+the development media host. Agents have local
 configuration plus separately scoped participation; selecting a community must
 not become a deployment or enrollment command.
 

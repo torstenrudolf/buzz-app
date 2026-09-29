@@ -93,6 +93,31 @@ it.each([
   },
 );
 
+it("mints only bounded invites on the captured community", async () => {
+  respond = () => ({
+    body: { code: "invite", url: `${community}/invite/invite` },
+  });
+  await expect(
+    communityRequest(community, "invite", {
+      ttl_secs: 3600,
+      max_uses: 1,
+      ignored: true,
+    }),
+  ).resolves.toMatchObject({ code: "invite" });
+  expect(requests).toEqual([
+    { path: "/api/invites", body: { ttl_secs: 3600, max_uses: 1 } },
+  ]);
+  for (const body of [
+    { ttl_secs: 59 },
+    { ttl_secs: 2592001 },
+    { ttl_secs: 3600.5 },
+    { ttl_secs: 3600, max_uses: 0 },
+    { ttl_secs: 3600, max_uses: 10001 },
+  ])
+    await expect(communityRequest(community, "invite", body)).rejects.toThrow();
+  expect(requests).toHaveLength(1);
+});
+
 it("binds policy acceptance and invite redemption to the same community without implicit joins", async () => {
   respond = (path) => {
     if (path === "/api/join-policy") return { body: { policy: null } };

@@ -95,6 +95,34 @@ export async function nativeCommunityRequest(
       throw new Error("Policy acceptance was not confirmed");
     return result;
   }
+  if (route === "invite") {
+    const input = body as
+      | { ttl_secs?: unknown; max_uses?: unknown }
+      | undefined;
+    const ttl = input?.ttl_secs;
+    const uses = input?.max_uses ?? null;
+    if (
+      !Number.isSafeInteger(ttl) ||
+      (ttl as number) < 60 ||
+      (ttl as number) > 2_592_000
+    )
+      throw new Error("Invalid invite expiry");
+    if (
+      uses !== null &&
+      (!Number.isSafeInteger(uses) ||
+        (uses as number) < 1 ||
+        (uses as number) > 10_000)
+    )
+      throw new Error("Invalid invite use limit");
+    return readResponse(
+      await nativeRelayRequest(
+        community,
+        "/api/invites",
+        { ttl_secs: ttl, max_uses: uses },
+        signal,
+      ),
+    );
+  }
   if (route === "profile") {
     const profile = body as PersonalProfile & {
       existing?: Record<string, unknown>;

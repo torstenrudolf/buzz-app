@@ -1,3 +1,6 @@
+import { nativeIdentityEnabled } from "../identity/service";
+import { nativeRelayInfo, nativeRelayRequest } from "./native";
+
 export type RelayGifSearchInfo = {
   gif?: {
     provider?: string;
@@ -149,19 +152,18 @@ async function brokerRequest<T>(
   body: unknown | undefined,
   signal?: AbortSignal,
 ): Promise<T> {
-  const response = await fetch(
-    `/api/relay/${encodeURIComponent(community)}/${route}`,
-    {
-      ...(body === undefined
-        ? {}
-        : {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(body),
-          }),
-      ...(signal ? { signal } : {}),
-    },
-  );
+  const response = nativeIdentityEnabled()
+    ? await nativeRelayRequest(community, route, body, signal)
+    : await fetch(`/api/relay/${encodeURIComponent(community)}/${route}`, {
+        ...(body === undefined
+          ? {}
+          : {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(body),
+            }),
+        ...(signal ? { signal } : {}),
+      });
   const result = (await response.json()) as T & { error?: string };
   if (!response.ok)
     throw new Error(result.error ?? `GIF request failed (${response.status})`);
@@ -172,6 +174,10 @@ export async function relaySupportsKlipy(
   community: string,
   signal?: AbortSignal,
 ) {
+  if (nativeIdentityEnabled()) {
+    const info = await nativeRelayInfo(community, signal);
+    return relayKlipySearchPath(info) === "/gifs/search";
+  }
   const info = await brokerRequest<RelayGifSearchInfo>(
     community,
     "gif-info",
@@ -187,9 +193,15 @@ export async function fetchKlipyGifs(
   query: string,
   signal?: AbortSignal,
 ): Promise<KlipyGif[]> {
+  const route = nativeIdentityEnabled()
+    ? relayKlipySearchPath(await nativeRelayInfo(community, signal))
+    : "gifs";
+  if (!route) throw new Error("GIF search is unavailable");
+  if (nativeIdentityEnabled() && route !== "/gifs/search")
+    throw new Error("GIF search is unavailable");
   const response = await brokerRequest<KlipyResponse>(
     community,
-    "gifs",
+    route,
     {
       customer_id: customerId(),
       locale: navigator.language || "en-US",

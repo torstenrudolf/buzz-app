@@ -1,3 +1,5 @@
+import { invoke } from "@tauri-apps/api/core";
+import { nativeIdentityEnabled } from "../../features/identity/service";
 import {
   type ReactNode,
   useCallback,
@@ -90,12 +92,17 @@ export function HostedCommunities({ active }: { active(): boolean }) {
   const loadLocal = useCallback(() => {
     const at = ++localRead.current;
     setLocal(undefined);
-    void fetch("/api/relay/identity")
-      .then((response): Promise<{ viewer?: string }> => {
-        if (!response.ok) throw new Error(String(response.status));
-        return response.json();
-      })
-      .then(({ viewer }) => boundKey(viewer ? { pubkey_hex: viewer } : null))
+    void (
+      nativeIdentityEnabled()
+        ? invoke<string | null>("identity_restore")
+        : fetch("/api/relay/identity").then(
+            (response): Promise<string | null> => {
+              if (!response.ok) throw new Error(String(response.status));
+              return response.json().then(({ viewer }) => viewer);
+            },
+          )
+    )
+      .then((viewer) => boundKey(viewer ? { pubkey_hex: viewer } : null))
       .catch(() => null)
       .then((key) => at === localRead.current && setLocal(key));
   }, []);

@@ -131,9 +131,10 @@ account: browser sign-in, binding the local Buzz identity (a locally signed kind
 24243 challenge), and create/archive/unarchive/transfer. Joining stays in the
 existing Add a community dialog; the card only copies the new relay address. Its
 `/api/builderlab/*` routes live in the development broker (`dev/builderlab.mjs`),
-which keeps the session credential and signing key in Node. Packaged builds ship no
-broker, so this plugin cannot sign in or manage communities there until a native
-backend exists.
+which keeps the session credential and signing key in Node. Packaged builds read
+the local Buzz public key from their native identity host, but ship no broker;
+this plugin cannot sign in or manage communities there until a native backend
+exists.
 
 `ctx.channelTemplates.register({ id, title, editor, groupDefault, saveAs })` supplies
 one optional composition provider. With zero or multiple active providers, no

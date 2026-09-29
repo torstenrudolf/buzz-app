@@ -36,7 +36,12 @@ fn request_url(community: &str, path: &str, method: &str) -> Result<Url> {
         "GET" => matches!(path, "/" | "/api/join-policy"),
         "POST" => matches!(
             path,
-            "/query" | "/events" | "/api/invites/claim" | "/api/invites/accept-policy"
+            "/query"
+                | "/events"
+                | "/api/invites"
+                | "/api/invites/claim"
+                | "/api/invites/accept-policy"
+                | "/gifs/search"
         ),
         _ => false,
     };

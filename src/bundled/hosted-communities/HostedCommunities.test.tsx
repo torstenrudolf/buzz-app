@@ -13,6 +13,11 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { StrictMode } from "react";
 import { npubEncode } from "nostr-tools/nip19";
 import { HostedCommunities } from "./HostedCommunities";
+import { invoke } from "@tauri-apps/api/core";
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: vi.fn(),
+  isTauri: vi.fn(() => false),
+}));
 
 const local = "a".repeat(64);
 const other = "b".repeat(64);
@@ -54,6 +59,24 @@ const renderCard = () =>
       <HostedCommunities active={() => true} />
     </StrictMode>,
   );
+
+it("reads the packaged local identity from the native host without contacting the broker", async () => {
+  const { isTauri } = await import("@tauri-apps/api/core");
+  vi.mocked(isTauri).mockReturnValue(true);
+  vi.stubGlobal("navigator", { platform: "MacIntel" });
+  vi.stubEnv("VITE_BUZZ_LIVE", "0");
+  vi.mocked(invoke).mockResolvedValue(local);
+  try {
+    renderCard();
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith("identity_restore"),
+    );
+    expect(calls.map(([url]) => url)).not.toContain("/api/relay/identity");
+  } finally {
+    vi.mocked(isTauri).mockReturnValue(false);
+    vi.unstubAllEnvs();
+  }
+});
 
 it("offers browser sign-in when no Builderlab session exists", async () => {
   routes["/api/builderlab/auth"] = () => ({ auth: null });
