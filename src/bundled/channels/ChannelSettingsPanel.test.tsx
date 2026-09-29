@@ -251,3 +251,38 @@ it("ignores an old channel's pending preview and hides content immediately on sc
   ).not.toBeInTheDocument();
   await waitFor(() => expect(otherCommunity.read).toHaveBeenCalledTimes(1));
 });
+
+it("replaces a saved preview with loading and failure states during refresh", async () => {
+  const canvas = previewFixture();
+  const { rerender } = render(panel(canvas));
+  await screen.findByText("Google root-link preview submission deep dive");
+  rerender(panel(canvas, "alpha", true));
+  let reject!: (error: Error) => void;
+  canvas.read.mockReturnValueOnce(
+    new Promise((_, rejectRead) => {
+      reject = rejectRead;
+    }),
+  );
+  try {
+    rerender(panel(canvas));
+    expect(canvas.read).toHaveBeenCalledTimes(2);
+    expect(screen.getByText("Loading preview…")).toBeVisible();
+    expect(
+      screen.queryByText("Google root-link preview submission deep dive"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Canvas" }),
+    ).toHaveAccessibleDescription("Loading preview…");
+  } finally {
+    await act(async () => reject(new Error("Offline")));
+  }
+  expect(screen.getByText("Preview unavailable. Open to retry.")).toBeVisible();
+  expect(
+    screen.getByRole("button", { name: "Canvas" }),
+  ).toHaveAccessibleDescription("Preview unavailable. Open to retry.");
+  expect(screen.getByRole("button", { name: "Canvas" })).toBeEnabled();
+  expect(
+    screen.queryByText("Google root-link preview submission deep dive"),
+  ).not.toBeInTheDocument();
+  expect(canvas.save).not.toHaveBeenCalled();
+});

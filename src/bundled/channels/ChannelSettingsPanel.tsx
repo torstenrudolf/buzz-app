@@ -49,6 +49,7 @@ export function ChannelSettingsPanel({
   }>();
   useEffect(() => {
     if (!canvas || !channelId || canvasOpen) return;
+    setPreview(undefined);
     let active = true;
     void canvas.read(channelId).then(
       (event) => {
