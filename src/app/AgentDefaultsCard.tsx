@@ -133,7 +133,10 @@ function ProviderChoice({
           })),
           ...Object.entries(PI_API_KEYS)
             .filter(([value]) => !discovered.includes(value))
-            .map(([value, details]) => ({ value, label: details.label })),
+            .map(([value, details]) => ({
+              value,
+              label: `${details.label} (API key may be needed)`,
+            })),
         ]
       : (harness?.providers ?? []);
   const builtInProvider = state.data?.agentDefaults?.provider ?? "";
@@ -469,10 +472,8 @@ export function AgentDefaultsCard({
         onValueChange={(harness) =>
           change({
             harness: harness as AgentDefaultsEdit["harness"],
-            // Provider, model and effort belong to the previous harness.
-            ...(harness === current.harness
-              ? {}
-              : { provider: "", model: "", effort: "" }),
+            // Keep the provider, but clear values tied to the old harness.
+            ...(harness === current.harness ? {} : { model: "", effort: "" }),
           })
         }
       />

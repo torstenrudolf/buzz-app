@@ -153,7 +153,11 @@ it("looks up Pi models only on Browse, then recovers from failure using the draf
   await user.click(
     within(card).getByRole("combobox", { name: "Default provider" }),
   );
-  expect(await screen.findByRole("option", { name: "OpenAI" })).toBeVisible();
+  expect(
+    await screen.findByRole("option", {
+      name: "OpenAI (API key may be needed)",
+    }),
+  ).toBeVisible();
   await user.click(
     screen.getByRole("option", { name: "Not set (use harness default)" }),
   );
@@ -293,7 +297,7 @@ it("discard clears unfinished environment inputs as well as the saved draft", as
   expect(within(card).getByLabelText("Value")).toHaveValue("");
 });
 
-it("changing the default harness clears model and effort and saves write-only env", async () => {
+it("changing the default harness keeps provider, clears model and effort, and saves write-only env", async () => {
   const user = userEvent.setup();
   const { fixture, control } = setup(2, 1);
   await control.refresh();
@@ -312,6 +316,12 @@ it("changing the default harness clears model and effort and saves write-only en
     within(card).getByRole("combobox", { name: "Conversation context" }),
   );
   await user.click(await screen.findByRole("option", { name: "Each thread" }));
+  expect(
+    within(card).getByRole("combobox", { name: "Default provider" }),
+  ).toHaveTextContent("Custom ID");
+  expect(
+    within(card).getByRole("textbox", { name: "Custom default provider ID" }),
+  ).toHaveValue("databricks_v2");
   expect(
     within(card).getByRole("combobox", { name: "Default model" }),
   ).toHaveTextContent("Not set");
@@ -333,7 +343,7 @@ it("changing the default harness clears model and effort and saves write-only en
     payload: {
       edit: {
         harness: "goose",
-        provider: "",
+        provider: "databricks_v2",
         model: "",
         effort: "",
         sessionPolicy: "thread",
