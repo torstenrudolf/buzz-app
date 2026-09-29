@@ -152,7 +152,7 @@ slot/client ID. The Node development broker or the packaged Tauri identity host
 owns the key and narrow codec. Native decode verifies own signed NIP-RS coordinates; native signing
 accepts only bounded read-state intent, and publication rechecks the signed event
 before sending it. Plugins receive no generic encryption or arbitrary-kind signing
-capability. Both transports use scoped relay admission and NIP-98 for reads and writes.
+capability. Both transports use scoped NIP-98 for reads and writes.
 
 Accepted local intent is saved before signing; the exact signed event is saved
 before sending. Lost responses/readback retain that event identity for retry.
