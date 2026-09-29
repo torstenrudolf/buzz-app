@@ -637,6 +637,39 @@
 .settingsId {
   overflow-wrap: anywhere;
 }
+.settingsCanvas {
+  width: 100%;
+  padding: var(--space-4);
+  border: 1px solid var(--border-standard);
+  border-radius: var(--radius-card);
+  background: transparent;
+  color: var(--text-standard);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+  transition: background-color var(--duration-state) var(--easing-state);
+}
+/* biome-ignore lint/correctness/noUnknownPseudoClass: CSS Modules global selector constrains the shared row description for ellipsis. */
+.settingsCanvas :global(.buzz-choice-row-description) {
+  min-width: 0;
+}
+.settingsCanvasPreview {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.settingsCanvas:hover {
+  background: var(--affordance-panel-hover);
+}
+.settingsCanvas:active {
+  background: var(--affordance-subtle-pressed);
+}
+@media (prefers-reduced-motion: reduce) {
+  .settingsCanvas {
+    transition: none;
+  }
+}
 .settingsDiagnostics > summary {
   cursor: pointer;
   color: var(--text-subtle);

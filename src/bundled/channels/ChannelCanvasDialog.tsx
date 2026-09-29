@@ -3,7 +3,7 @@ import type { ChannelCanvas } from "../../features/channel-templates/capability"
 import type { RelayEvent } from "../../features/relay/events";
 import { readView, writeView } from "../../shared/view-state";
 import { Button } from "../../shared/design-system/ui/Button";
-import { Dialog } from "../../shared/design-system/ui/Dialog";
+import { Dialog, type DialogProps } from "../../shared/design-system/ui/Dialog";
 import { Textarea } from "../../shared/design-system/ui/Textarea";
 import styles from "./ChannelTemplates.module.css";
 
@@ -14,12 +14,14 @@ export function ChannelCanvasDialog({
   channelId,
   open,
   onOpenChange,
+  finalFocus,
 }: {
   canvas: ChannelCanvas;
   scope: string;
   channelId: string;
   open: boolean;
   onOpenChange(open: boolean): void;
+  finalFocus?: DialogProps["finalFocus"];
 }) {
   const key = `canvas-draft-v1:${channelId}`;
   const [saved] = useState(() => {
@@ -99,6 +101,7 @@ export function ChannelCanvasDialog({
     <Dialog
       open={open}
       onOpenChange={onOpenChange}
+      finalFocus={finalFocus}
       preventClose={busy}
       title="Channel Canvas"
       closeLabel="Close Canvas"
