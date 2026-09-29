@@ -904,5 +904,5 @@ it("reads the complete snapshot and activity through the native query route", as
   ]);
   await expect(
     transport.channelActivity?.(["bad/channel"], signal),
-  ).rejects.toThrow("Invalid channel activity demand");
+  ).rejects.toThrow("Activity filter rejected");
 });

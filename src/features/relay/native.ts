@@ -339,7 +339,7 @@ export async function connectNativeTransport(
           throw new Error(`Read-state publication failed (${response.status})`);
         const receipt = await response.json();
         if (receipt?.accepted !== true || receipt?.event_id !== event.id)
-          throw new Error("Read-state publication was not confirmed");
+          throw new Error("Relay returned an invalid delivery receipt");
       },
     },
     ...(readCommunity
@@ -370,7 +370,7 @@ export async function connectNativeTransport(
         channelIds.length > 128 ||
         channelIds.some((id) => !/^[a-zA-Z0-9_-]{1,128}$/.test(id))
       )
-        throw new Error("Invalid channel activity demand");
+        throw new Error("Activity filter rejected");
       return transport.query(
         channelIds.map((channelId) => ({
           kinds: [9, 40002, 40008, 45001, 45003],
