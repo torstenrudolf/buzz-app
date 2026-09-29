@@ -1,11 +1,14 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   savedMessage,
   type AgentControl,
   type AgentControlState,
   type AgentDefaultSettings,
   type AgentDefaultsEdit,
+  type AgentEdit,
 } from "../features/agents/control";
+import type { ModelCatalog } from "../features/agents/models";
+import { PI_API_KEYS, harnessKind } from "../bundled/agents/agent-edit";
 import { Button } from "../shared/design-system/ui/Button";
 import { Field } from "../shared/design-system/ui/Field";
 import { Input } from "../shared/design-system/ui/Input";
@@ -17,6 +20,384 @@ const harnesses = [
   { value: "goose", label: "Goose" },
   { value: "pi", label: "Pi" },
 ] as const;
+
+function defaultLabel(harness: AgentDefaultsEdit["harness"], value: string) {
+  return value && harness === "buzz-agent"
+    ? `Use build default (${value})`
+    : "Not set (use harness default)";
+}
+
+type Choice = { value: string; label: string };
+
+/** A saved ID stays editable even when it is absent from today's suggestions. */
+function DefaultsChoice({
+  label,
+  value,
+  customValue = value,
+  choices,
+  disabled,
+  onSelect,
+  onCustom,
+  resetKey,
+}: {
+  label: string;
+  value: string;
+  customValue?: string;
+  choices: Choice[];
+  disabled: boolean;
+  onSelect(value: string): void;
+  onCustom(value: string): void;
+  resetKey: string;
+}) {
+  const [custom, setCustom] = useState(false);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new editing session resets the local input mode.
+  useEffect(() => setCustom(false), [resetKey]);
+  const index = choices.findIndex((choice) => choice.value === value);
+  const showInput = custom || index < 0;
+  return (
+    <div className="space-y-3">
+      <Select
+        label={label}
+        variant="field"
+        disabled={disabled}
+        value={showInput ? "custom" : `choice:${value}`}
+        groups={[
+          {
+            label: "",
+            options: [
+              ...choices.map((choice) => ({
+                value: `choice:${choice.value}`,
+                label: choice.label,
+              })),
+              { value: "custom", label: "Custom ID" },
+            ],
+          },
+        ]}
+        onValueChange={(selected) => {
+          setCustom(selected === "custom");
+          if (selected !== "custom") {
+            const choice = choices.find(
+              (option) => `choice:${option.value}` === selected,
+            );
+            if (choice) onSelect(choice.value);
+          }
+        }}
+      />
+      {showInput && (
+        <Field label={`Custom ${label.toLowerCase()} ID`}>
+          <Input
+            disabled={disabled}
+            spellCheck={false}
+            value={customValue}
+            onChange={(event) => {
+              setCustom(true);
+              onCustom(event.target.value);
+            }}
+          />
+        </Field>
+      )}
+    </div>
+  );
+}
+
+function ProviderChoice({
+  current,
+  state,
+  models,
+  disabled,
+  onChange,
+  editSession,
+}: {
+  current: AgentDefaultsEdit;
+  state: AgentControlState;
+  models: ModelCatalog["models"];
+  disabled: boolean;
+  onChange(provider: string): void;
+  editSession: number;
+}) {
+  const harness = state.data?.harnessOptions?.find(
+    (option) => harnessKind(option.command) === current.harness,
+  );
+  const discovered =
+    current.harness === "pi"
+      ? [
+          ...new Set(models.map((model) => model.id.split("/")[0] ?? "")),
+        ].filter(Boolean)
+      : [];
+  const providers =
+    current.harness === "pi"
+      ? [
+          ...discovered.map((value) => ({
+            value,
+            label: `${PI_API_KEYS[value]?.label ?? value} (available in Pi)`,
+          })),
+          ...Object.entries(PI_API_KEYS)
+            .filter(([value]) => !discovered.includes(value))
+            .map(([value, details]) => ({ value, label: details.label })),
+        ]
+      : (harness?.providers ?? []);
+  const builtInProvider = state.data?.agentDefaults?.provider ?? "";
+  const builtInLabel =
+    providers.find((provider) => provider.value === builtInProvider)?.label ??
+    builtInProvider;
+  const overrideKey =
+    current.harness === "goose"
+      ? "GOOSE_PROVIDER"
+      : current.harness === "buzz-agent"
+        ? "BUZZ_AGENT_PROVIDER"
+        : null;
+  const change = (provider: string) => onChange(provider);
+  return (
+    <div className="space-y-2">
+      <DefaultsChoice
+        label="Default provider"
+        value={current.provider}
+        choices={[
+          { value: "", label: defaultLabel(current.harness, builtInLabel) },
+          ...providers,
+        ]}
+        disabled={disabled}
+        resetKey={`${current.harness}-${editSession}`}
+        onSelect={change}
+        onCustom={change}
+      />
+      {overrideKey &&
+        state.data?.defaultSettings?.environmentKeys.includes(overrideKey) && (
+          <p className="m-0 text-body-sm text-warning">
+            A saved {overrideKey} environment value can override this provider.
+          </p>
+        )}
+    </div>
+  );
+}
+
+function ModelChoice({
+  control,
+  state,
+  current,
+  disabled,
+  onChange,
+  onModels,
+  editSession,
+}: {
+  control: AgentControl;
+  state: AgentControlState;
+  current: AgentDefaultsEdit;
+  disabled: boolean;
+  onChange(patch: Partial<AgentDefaultsEdit>): void;
+  onModels(models: ModelCatalog["models"]): void;
+  editSession: number;
+}) {
+  const harness = state.data?.harnessOptions?.find(
+    (option) => harnessKind(option.command) === current.harness,
+  );
+  const pi = current.harness === "pi";
+  const [catalog, setCatalog] = useState<{
+    key: string;
+    models: ModelCatalog["models"];
+  } | null>(null);
+  const [status, setStatus] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [attempted, setAttempted] = useState(false);
+  const pending = useRef<AbortController | null>(null);
+  const key = JSON.stringify([
+    current.harness,
+    pi ? null : current.provider,
+    harness?.command,
+    harness?.defaultArgs,
+    current.environment,
+    state.data?.defaultWorkspace,
+  ]);
+  const currentKey = useRef(key);
+  currentKey.current = key;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: key is the lookup context; a changed context retires native work.
+  useEffect(() => {
+    pending.current?.abort();
+    pending.current = null;
+    setBusy(false);
+    setAttempted(false);
+    setStatus("");
+    onModels([]);
+    return () => {
+      pending.current?.abort();
+    };
+  }, [key]);
+  const fresh = catalog?.key === key ? catalog.models : [];
+  const entries = fresh.filter(
+    (model) =>
+      !pi || !current.provider || model.id.startsWith(`${current.provider}/`),
+  );
+  const selectedId =
+    pi && current.provider && current.model
+      ? `${current.provider}/${current.model}`
+      : current.model;
+  const choices: Choice[] = [
+    {
+      value: "",
+      label: defaultLabel(
+        current.harness,
+        state.data?.agentDefaults?.model ?? "",
+      ),
+    },
+    ...entries.map((model) => ({ value: model.id, label: model.name })),
+  ];
+  const choose = (value: string) => {
+    if (pi && !value) onChange({ provider: "", model: "" });
+    else if (pi && fresh.some((model) => model.id === value)) {
+      const slash = value.indexOf("/");
+      onChange({
+        provider: value.slice(0, slash),
+        model: value.slice(slash + 1),
+      });
+    } else onChange({ model: value });
+  };
+  const browse = async () => {
+    if (
+      !control.models ||
+      !harness ||
+      harness.available === false ||
+      pending.current
+    )
+      return;
+    const run = new AbortController();
+    pending.current = run;
+    setBusy(true);
+    setAttempted(true);
+    setStatus(`Loading ${harness.label} models…`);
+    const hiddenHost =
+      state.data?.defaultSettings?.environmentKeys.includes("DATABRICKS_HOST");
+    const hiddenFilter = state.data?.defaultSettings?.environmentKeys.includes(
+      "DATABRICKS_MODEL_FILTER",
+    );
+    const edit: AgentEdit = {
+      name: "",
+      systemPrompt: "",
+      workspace: state.data?.defaultWorkspace ?? "",
+      harness: {
+        command: harness.command,
+        args: harness.defaultArgs ?? [],
+        provider:
+          current.harness === "buzz-agent" && !current.provider
+            ? state.data?.agentDefaults?.provider || "databricks_v2"
+            : current.provider,
+        model: current.model,
+      },
+      environment: current.environment,
+    };
+    try {
+      const result = await control.models.request(
+        {
+          edit,
+          host:
+            current.harness === "buzz-agent" && !hiddenHost
+              ? (state.data?.databricksDefaults?.host ?? "")
+              : "",
+          filter:
+            current.harness === "buzz-agent" && !hiddenFilter
+              ? (state.data?.databricksDefaults?.filter ?? "")
+              : "",
+          action: "connect",
+          ...(hiddenHost || hiddenFilter ? { inheritWorkspace: true } : {}),
+        },
+        run.signal,
+      );
+      if (run.signal.aborted || currentKey.current !== key) return;
+      setCatalog({ key, models: result.models });
+      onModels(result.models);
+      setStatus(
+        result.modelOverridden
+          ? "A saved environment model override takes precedence over this selection."
+          : result.models.length
+            ? "Model choices loaded. Availability does not confirm inference access."
+            : `No ${harness.label} models found. Enter a custom model ID or retry.`,
+      );
+    } catch (problem) {
+      if (!run.signal.aborted && currentKey.current === key)
+        setStatus((problem as Error).message);
+    } finally {
+      if (pending.current === run) {
+        pending.current = null;
+        setBusy(false);
+      }
+    }
+  };
+  return (
+    <div className="space-y-2">
+      <DefaultsChoice
+        label="Default model"
+        value={selectedId}
+        customValue={current.model}
+        choices={choices}
+        disabled={disabled}
+        resetKey={`${current.harness}-${editSession}`}
+        onSelect={choose}
+        onCustom={(model) => onChange({ model })}
+      />
+      <div className="flex flex-wrap items-center gap-2">
+        {busy ? (
+          <Button
+            type="button"
+            disabled={disabled}
+            onClick={() => {
+              pending.current?.abort();
+              setStatus("Cancelled. Retry when ready.");
+            }}
+          >
+            Cancel model lookup
+          </Button>
+        ) : (
+          <Button
+            type="button"
+            disabled={
+              disabled ||
+              !control.models ||
+              !harness ||
+              harness.available === false ||
+              (current.harness === "goose" && !current.provider)
+            }
+            onClick={() => void browse()}
+          >
+            {attempted ? "Retry models" : "Browse models"}
+          </Button>
+        )}
+        {status && (
+          <p role="status" className="m-0 text-body-sm text-secondary">
+            {status}
+          </p>
+        )}
+      </div>
+      {harness?.available === false && (
+        <p className="m-0 text-body-sm text-secondary">
+          Install {harness.label} to browse its models. Custom IDs remain
+          editable.
+        </p>
+      )}
+      {!control.models && (
+        <p className="m-0 text-body-sm text-secondary">
+          Model browsing requires an updated desktop app. Custom IDs remain
+          editable.
+        </p>
+      )}
+      {current.harness === "goose" && !current.provider && (
+        <p className="m-0 text-body-sm text-secondary">
+          Choose a Goose provider to browse its models.
+        </p>
+      )}
+      {pi && current.provider && !current.model && (
+        <p className="m-0 text-body-sm text-warning">
+          Choose a model for this Pi provider, or clear Provider to use Pi
+          defaults.
+        </p>
+      )}
+      {Object.keys(current.environment).length > 0 && (
+        <p className="m-0 text-body-sm text-secondary">
+          Saved environment values can still affect lookup until these edits are
+          saved.
+        </p>
+      )}
+    </div>
+  );
+}
 
 function draftFrom(saved: AgentDefaultSettings): AgentDefaultsEdit {
   const { environmentKeys: _keys, ...fields } = saved;
@@ -37,6 +418,8 @@ export function AgentDefaultsCard({
   const [newValue, setNewValue] = useState("");
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+  const [models, setModels] = useState<ModelCatalog["models"]>([]);
+  const [editSession, setEditSession] = useState(0);
   if (!saved || !control.saveDefaults) return null;
   const current = draft ?? draftFrom(saved);
   const disabled = state.busy || state.status !== "ready";
@@ -54,6 +437,7 @@ export function AgentDefaultsCard({
         setDraft(null);
         setNewKey("");
         setNewValue("");
+        setEditSession((session) => session + 1);
         setNotice(savedMessage(snapshot.restarted, snapshot.restartFailures));
       },
       // The controller's sanitized reason: a save may already have committed
@@ -64,7 +448,7 @@ export function AgentDefaultsCard({
   return (
     <section
       aria-labelledby="agent-defaults-title"
-      className={`${styles.card} mt-6 space-y-4`}
+      className={`${styles.card} ${styles.defaultsCard} mt-6 space-y-4`}
     >
       <div className="space-y-1">
         <h3 id="agent-defaults-title" className="m-0 text-label">
@@ -85,27 +469,35 @@ export function AgentDefaultsCard({
         onValueChange={(harness) =>
           change({
             harness: harness as AgentDefaultsEdit["harness"],
-            // Model and effort belong to the previous harness.
-            ...(harness === current.harness ? {} : { model: "", effort: "" }),
+            // Provider, model and effort belong to the previous harness.
+            ...(harness === current.harness
+              ? {}
+              : { provider: "", model: "", effort: "" }),
           })
         }
       />
-      <Field label="Default provider">
-        <Input
-          disabled={disabled}
-          value={current.provider}
-          placeholder="Not set"
-          onChange={(event) => change({ provider: event.target.value })}
-        />
-      </Field>
-      <Field label="Default model">
-        <Input
-          disabled={disabled}
-          value={current.model}
-          placeholder="Not set"
-          onChange={(event) => change({ model: event.target.value })}
-        />
-      </Field>
+      <ProviderChoice
+        current={current}
+        state={state}
+        models={models}
+        disabled={disabled}
+        editSession={editSession}
+        onChange={(provider) =>
+          change({
+            provider,
+            ...(provider === current.provider ? {} : { model: "" }),
+          })
+        }
+      />
+      <ModelChoice
+        control={control}
+        state={state}
+        current={current}
+        disabled={disabled}
+        editSession={editSession}
+        onChange={change}
+        onModels={setModels}
+      />
       <Field label="Default effort">
         <Input
           disabled={disabled}
@@ -232,6 +624,7 @@ export function AgentDefaultsCard({
               setDraft(null);
               setNewKey("");
               setNewValue("");
+              setEditSession((session) => session + 1);
             }}
           >
             Discard

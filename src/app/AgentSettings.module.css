@@ -6,6 +6,17 @@
   background: var(--surface-inset);
 }
 
+/* biome-ignore lint/correctness/noUnknownPseudoClass: CSS Modules targets the shared select inside Agent defaults. */
+.defaultsCard :global(.buzz-select-trigger) {
+  --border: var(--border-standard);
+  background: var(--surface-panel);
+}
+
+/* biome-ignore lint/correctness/noUnknownPseudoClass: CSS Modules preserves the shared select focus state. */
+.defaultsCard :global(.buzz-select-trigger:is(:focus, [data-popup-open])) {
+  --border: var(--border-prominent);
+}
+
 .rows {
   margin: var(--space-3) 0;
   padding: 0;
