@@ -902,6 +902,9 @@
   display: grid;
   gap: var(--space-4);
 }
+.detailsEditor:empty {
+  display: none;
+}
 
 .detailsLabel {
   display: flex;

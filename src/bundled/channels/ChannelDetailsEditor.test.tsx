@@ -299,7 +299,7 @@ it("keeps details readable without editing authority or host support", async () 
   ).toBeVisible();
 });
 
-it("Escape dismisses the select, then the edit dialog, then Settings", async () => {
+it("orders metadata, Canvas, and actions and dismisses each edit layer with Escape", async () => {
   const h = harness();
   const user = userEvent.setup();
   const close = vi.fn();
@@ -307,12 +307,26 @@ it("Escape dismisses the select, then the edit dialog, then Settings", async () 
     <ChannelSettingsPanel
       channel={channel}
       details={h.capability}
+      openCanvas={() => {}}
+      setupTools={<button type="button">Leave channel</button>}
       close={close}
     >
       Diagnostics
     </ChannelSettingsPanel>,
   );
-  await user.click(await screen.findByRole("button", { name: "Edit details" }));
+  const edit = await screen.findByRole("button", { name: "Edit details" });
+  const canvas = screen.getByRole("button", { name: "Canvas" });
+  expect(
+    screen.getByText(channel.description).compareDocumentPosition(canvas) &
+      Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  await user.tab();
+  expect(canvas).toHaveFocus();
+  await user.tab();
+  expect(edit).toHaveFocus();
+  await user.tab();
+  expect(screen.getByRole("button", { name: "Leave channel" })).toHaveFocus();
+  await user.click(edit);
   expect(
     screen.getByRole("dialog", { name: "Edit channel details" }),
   ).toBeVisible();

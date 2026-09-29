@@ -163,17 +163,6 @@ export function ChannelSettingsPanel({
               </dl>
             </>
           )}
-          {channel &&
-            (channel.channelType === "stream" ||
-              channel.channelType === "forum") &&
-            !channel.readOnly &&
-            !channel.cached &&
-            !channel.archived &&
-            (details?.available ? (
-              <ChannelDetailsEditor channel={channel} capability={details} />
-            ) : (
-              <p>Editing is unavailable on this connection.</p>
-            ))}
           {channel && !channel.readOnly && openCanvas && (
             <button
               type="button"
@@ -199,6 +188,17 @@ export function ChannelSettingsPanel({
               />
             </button>
           )}
+          {channel &&
+            (channel.channelType === "stream" ||
+              channel.channelType === "forum") &&
+            !channel.readOnly &&
+            !channel.cached &&
+            !channel.archived &&
+            (details?.available ? (
+              <ChannelDetailsEditor channel={channel} capability={details} />
+            ) : (
+              <p>Editing is unavailable on this connection.</p>
+            ))}
           {setupTools}
           <details className={styles.settingsDiagnostics}>
             <summary>Diagnostics</summary>
