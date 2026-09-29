@@ -139,6 +139,9 @@ const TEXT_ROLES = [
  * every fill it can actually sit on, and hover is one of them.
  */
 const PAIRS = [
+  ...["control", "control-hover", "control-pressed", "selected"].map(
+    (state) => ["--text-standard", `--affordance-floating-${state}`],
+  ),
   ["--text-standard", "--affordance-floating-hover"],
   ["--text-danger", "--affordance-floating-hover"],
   ["--text-inverse", "--surface-inverse"],
@@ -292,6 +295,17 @@ for (const [mode, map] of Object.entries(modes)) {
   }
   for (const [role, fill] of PAIRS) check(role, fill);
   for (const [text, tint] of TINT_PAIRS) check(text, tint);
+  const floatingBorder = resolve(map, "--border-floating-control");
+  const floatingSurface = resolve(map, "--surface-popover");
+  const floatingBoundary =
+    floatingBorder && floatingSurface
+      ? wcagRatio(floatingBorder, floatingSurface)
+      : null;
+  if (floatingBoundary === null || floatingBoundary < 3) {
+    boundaryFailures.push(
+      `${mode}: --border-floating-control on --surface-popover — ${floatingBoundary === null ? "unresolved color" : `${floatingBoundary.toFixed(3)}:1`}, needs 3:1`,
+    );
+  }
   for (const role of BOUNDARY_ROLES) {
     const surfaces =
       role.startsWith("--status-avatar-") || role === "--status-away"

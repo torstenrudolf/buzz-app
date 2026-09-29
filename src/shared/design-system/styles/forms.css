@@ -1,4 +1,9 @@
 @layer components {
+  /* The action sits on the inset field, not the surrounding floating surface.
+     Reset only the child action so the outer field keeps its surface boundary. */
+  .buzz-input-group .buzz-button {
+    @apply interaction-panel;
+  }
   /* A reserved border fades at the field perimeter without changing its geometry.
      Composite fields own one stroke around the input and its actions. */
   .buzz-input,
@@ -101,8 +106,9 @@
     border-radius: var(--radius-control);
   }
   .buzz-choice[data-variant="card"]:has([data-checked]) {
-    border-color: var(--border-prominent);
-    background: var(--affordance-selected);
+    border-color: var(--interaction-border);
+    --text-subtle: var(--interaction-selected-text);
+    background: var(--interaction-selected);
   }
   .buzz-choice:has([data-disabled]) {
     cursor: not-allowed;
@@ -118,7 +124,7 @@
     width: 1.25rem;
     height: 1.25rem;
     flex-shrink: 0;
-    border: 1px solid var(--border-prominent);
+    border: 1px solid var(--interaction-border);
     background: var(--surface-panel);
     color: var(--text-inverse);
   }
@@ -187,6 +193,12 @@
     min-width: 0;
     max-width: 100%;
     color: var(--text-subtle);
+  }
+  .buzz-select[data-variant="compact"]
+    .buzz-button:is(:hover, :active, [aria-expanded="true"]):not(
+      [data-disabled]
+    ) {
+    color: var(--text-standard);
   }
   .buzz-select[data-variant="compact"] .buzz-button:disabled {
     color: var(--text-unavailable);
@@ -313,7 +325,7 @@
   .buzz-input:where(:focus, [data-popup-open]),
   .buzz-textarea:where(:focus),
   .buzz-input-group:where(:focus-within) {
-    --border: var(--border-prominent);
+    --border: var(--interaction-border);
   }
   html[data-keyboard-navigation]
     :is(.buzz-input, .buzz-textarea, .buzz-input-group) {

@@ -1,3 +1,4 @@
+import { SurfaceInteractionSpecimen } from "./SurfaceInteractionSpecimen";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { Button } from "../../../../src/shared/design-system/ui/Button";
@@ -13,6 +14,7 @@ export function FloatingSurfacesPage() {
         title="Floating surfaces"
         intro="One shared outer appearance for a card above the page. The shared Preview Card and Select use the same background, border, corners, and shadow while keeping their own content and interactions."
       />
+      <SurfaceInteractionSpecimen />
       <Section
         title="The shared recipe"
         description="Use floating-surface for the outer material. The consumer supplies its width, padding, placement, and behavior; the recipe supplies these four visual roles."

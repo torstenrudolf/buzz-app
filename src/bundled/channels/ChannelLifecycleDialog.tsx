@@ -79,7 +79,7 @@ export function ChannelLifecycleDialog({
     <dialog
       ref={dialog}
       data-buzz-ui=""
-      className={styles.dialog}
+      className={`${styles.dialog} interaction-floating`}
       aria-labelledby="channel-lifecycle-title"
       aria-describedby="channel-lifecycle-description"
       onKeyDown={(event) => {

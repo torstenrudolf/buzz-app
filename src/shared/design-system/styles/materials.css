@@ -65,6 +65,7 @@
    drift in fill, boundary, or elevation while retaining independent content
    layout and behavior. Compact action surfaces override the default radius. */
 @utility floating-surface {
+  @apply interaction-floating;
   border: 1px solid var(--border-standard);
   border-radius: var(--radius-panel);
   background: var(--surface-popover);
@@ -133,4 +134,37 @@
     transparent 1px
   );
   background-size: var(--texture-dots-size) var(--texture-dots-size);
+}
+
+/* Interaction context travels with the surface, including portal roots. Keep
+   these aliases separate from global affordances: avatars/chips are not actions.
+   A nested opaque Panel resets the recipe; a transparent group inherits it. */
+@utility interaction-panel {
+  --interaction-fill: var(--affordance-subtle);
+  --interaction-hover: var(--affordance-subtle-hover);
+  --interaction-pressed: var(--affordance-subtle-pressed);
+  --interaction-selected: var(--affordance-selected);
+  --interaction-border: var(--border-prominent);
+  --interaction-row-hover: var(--affordance-subtle);
+  --interaction-row-text: var(--text-subtle);
+  --interaction-row-metadata: var(--text-metadata);
+  --interaction-selected-text: var(--text-subtle);
+  --interaction-selected-metadata: var(--text-metadata);
+}
+@utility interaction-floating {
+  --interaction-fill: var(--affordance-floating-control);
+  --interaction-hover: var(--affordance-floating-control-hover);
+  --interaction-pressed: var(--affordance-floating-control-pressed);
+  --interaction-selected: var(--affordance-floating-selected);
+  --interaction-border: var(--border-floating-control);
+  --interaction-row-hover: var(--affordance-floating-hover);
+  --interaction-row-text: var(--text-standard);
+  --interaction-row-metadata: var(--text-standard);
+  --interaction-selected-text: var(--text-standard);
+  --interaction-selected-metadata: var(--text-standard);
+}
+@layer base {
+  :root {
+    @apply interaction-panel;
+  }
 }

@@ -70,13 +70,13 @@
     color: var(--text-inverse);
   }
   .buzz-button[data-variant="subtle"] {
-    background: var(--affordance-subtle);
+    background: var(--interaction-fill);
   }
   .buzz-button[data-variant="inverted"] {
     background: var(--surface-panel);
   }
   .buzz-button[data-variant="outline"] {
-    box-shadow: inset 0 0 0 1px var(--border-prominent);
+    box-shadow: inset 0 0 0 1px var(--interaction-border);
   }
   .buzz-button[data-variant="destructive"] {
     background: var(--affordance-danger);
@@ -103,7 +103,7 @@
         [data-icon-variant="avatar"],
         [data-icon-variant="media"]
       ) {
-      background: var(--affordance-subtle-hover);
+      background: var(--interaction-hover);
     }
     .buzz-button[data-variant="destructive"]:hover:not([data-disabled]) {
       background: var(--affordance-danger-hover);
@@ -128,7 +128,7 @@
     [data-icon-variant="avatar"],
     [data-icon-variant="media"]
   ) {
-    background: var(--affordance-subtle-pressed);
+    background: var(--interaction-pressed);
   }
   .buzz-button[data-variant="destructive"]:is(
     :active,
@@ -201,7 +201,7 @@
   .buzz-button[data-icon-variant="ghost"][data-selected]:hover:not(
     [data-disabled]
   ) {
-    background: var(--affordance-selected);
+    background: var(--interaction-selected);
   }
 
   /* Buzz's existing composer and workspace treatments remain explicit. */
@@ -407,6 +407,7 @@
      variant can still override it without an escalation. */
   .panel,
   :where(.bento-workspace .dv-groupview) {
+    @apply interaction-panel;
     width: 100%;
     height: 100%;
     min-width: 0;
@@ -765,13 +766,17 @@
   /* Hover is the lightest acknowledgement; selection is a persistent, one-step
      stronger statement. Keeping them separate prevents a selected destination
      from becoming indistinguishable the moment a pointer passes over it. */
-  .navigation-item:hover:not([data-selected]) {
-    background: var(--affordance-subtle);
+  .navigation-item:hover:not([data-selected], [data-disabled], :disabled) {
+    --text-subtle: var(--interaction-row-text);
+    --text-metadata: var(--interaction-row-metadata);
+    background: var(--interaction-row-hover);
     color: var(--text-standard);
   }
 
   .navigation-item[data-selected] {
-    background: var(--affordance-selected);
+    --text-subtle: var(--interaction-selected-text);
+    --text-metadata: var(--interaction-selected-metadata);
+    background: var(--interaction-selected);
     color: var(--text-standard);
   }
 
@@ -859,8 +864,7 @@
      Supporting copy follows the brighter fill so it remains readable. */
   .buzz-menu-item[data-highlighted],
   .buzz-menu-item[data-popup-open],
-  .buzz-select-option[data-highlighted],
-  .buzz-popover-popup .navigation-item:hover:not([data-selected]) {
+  .buzz-select-option[data-highlighted] {
     --text-subtle: var(--text-standard);
     --text-metadata: var(--text-standard);
     background: var(--affordance-floating-hover);
@@ -913,8 +917,6 @@
     overflow-wrap: anywhere;
   }
   .buzz-popover-popup {
-    /* Persistent navigation selection must remain visible on the raised fill. */
-    --affordance-selected: var(--affordance-subtle-hover);
     @apply floating-surface;
     width: 20rem;
     max-width: min(var(--available-width), calc(100vw - var(--space-4)));
@@ -931,6 +933,8 @@
   .buzz-menu-popup[data-size="compact"],
   .buzz-popover-popup[data-size="compact"] {
     --affordance-floating-hover: var(--affordance-subtle-hover);
+    --interaction-row-hover: var(--affordance-floating-hover);
+    --interaction-selected: var(--affordance-subtle-pressed);
     border-radius: var(--radius-row);
   }
   .buzz-menu-popup[data-size="compact"] .buzz-menu-item,

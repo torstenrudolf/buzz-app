@@ -533,6 +533,11 @@
   --affordance-navigation-quiet: var(--neutral-navigation-quiet);
   --affordance-panel-hover: var(--neutral-2);
   --affordance-floating-hover: var(--neutral-3);
+  --affordance-floating-control: var(--affordance-subtle);
+  --affordance-floating-control-hover: var(--affordance-subtle-hover);
+  --affordance-floating-control-pressed: var(--affordance-subtle-pressed);
+  --affordance-floating-selected: var(--affordance-subtle-pressed);
+  --border-floating-control: var(--border-prominent);
   --affordance-selected: var(--neutral-3);
   --affordance-disabled: var(--neutral-3);
   --affordance-danger: var(--red-3);
@@ -587,6 +592,11 @@
   --affordance-subtle-pressed: var(--neutral-7);
   --affordance-panel-hover: var(--neutral-4);
   --affordance-floating-hover: var(--neutral-7);
+  --affordance-floating-control: var(--neutral-6);
+  --affordance-floating-control-hover: var(--neutral-7);
+  --affordance-floating-control-pressed: var(--neutral-8);
+  --affordance-floating-selected: var(--neutral-6);
+  --border-floating-control: var(--neutral-9);
   --affordance-selected: var(--neutral-5);
   --affordance-disabled: var(--neutral-3);
   --affordance-danger: var(--red-3);
@@ -794,6 +804,7 @@
   --text-color-accent: var(--text-accent);
   --border-color-standard: var(--border-standard);
   --border-color-prominent: var(--border-prominent);
+  --border-color-floating-control: var(--border-floating-control);
   --border-color-focus: var(--border-focus);
   --border-color-danger: var(--border-danger);
   --border-color-warning: var(--border-warning);
@@ -806,6 +817,14 @@
   --color-affordance-navigation-quiet: var(--affordance-navigation-quiet);
   --color-affordance-panel-hover: var(--affordance-panel-hover);
   --color-affordance-floating-hover: var(--affordance-floating-hover);
+  --color-affordance-floating-control: var(--affordance-floating-control);
+  --color-affordance-floating-control-hover: var(
+    --affordance-floating-control-hover
+  );
+  --color-affordance-floating-control-pressed: var(
+    --affordance-floating-control-pressed
+  );
+  --color-affordance-floating-selected: var(--affordance-floating-selected);
   --color-affordance-selected: var(--affordance-selected);
   --color-affordance-disabled: var(--affordance-disabled);
   --color-affordance-danger: var(--affordance-danger);
