@@ -861,6 +861,193 @@ it("exposes read-state only for advertised snapshots and keeps signing purpose-b
   expect(requests.every((r) => r.path !== "/events")).toBe(true);
 });
 
+it("native snapshot quota pauses reads and publication on the same principal", async () => {
+  discovery = {
+    read_state_snapshot: {
+      version: 1,
+      community_id: "11111111-1111-4111-8111-111111111111",
+    },
+  };
+  const transport = await connectNativeTransport("https://snapshot-quota.test");
+  assert.exists(transport.readState);
+  const signal = new AbortController().signal;
+  const event = signed(viewer, {
+    kind: 30078,
+    created_at: 1700000010,
+    tags: [
+      ["d", `read-state:${"a".repeat(32)}`],
+      ["t", "read-state"],
+    ],
+    content: "ciphertext",
+  });
+  respond = () => ({
+    status: 429,
+    body: { error: "rate-limited: quota exceeded; retry in 30s" },
+  });
+  await expect(
+    transport.readStateSnapshot?.(signal, "read", "foreground"),
+  ).rejects.toThrow("rate-limited: quota exceeded");
+  const dispatched = requests.length;
+  await expect(
+    transport.query([{ kinds: [9], limit: 1 }], signal),
+  ).rejects.toThrow("Relay requests paused");
+  await expect(transport.readState.publish?.(event, signal)).rejects.toThrow(
+    "Relay requests paused",
+  );
+  expect(requests).toHaveLength(dispatched);
+  expect(
+    vi
+      .mocked(invoke)
+      .mock.calls.some(([command]) => command === "relay_publish_read_state"),
+  ).toBe(false);
+});
+
+it("native publication shares quota admission and preserves receipt and IPC failures", async () => {
+  discovery = {
+    read_state_snapshot: {
+      version: 1,
+      community_id: "11111111-1111-4111-8111-111111111111",
+    },
+  };
+  const transport = await connectNativeTransport(
+    "https://publication-quota.test",
+  );
+  assert.exists(transport.readState);
+  const signal = new AbortController().signal;
+  const event = signed(viewer, {
+    kind: 30078,
+    created_at: 1700000010,
+    tags: [
+      ["d", `read-state:${"a".repeat(32)}`],
+      ["t", "read-state"],
+    ],
+    content: "ciphertext",
+  });
+  vi.mocked(invoke).mockResolvedValueOnce({
+    status: 200,
+    headers: {},
+    body: JSON.stringify({
+      accepted: false,
+      event_id: event.id,
+      message: "blocked: read-state quota",
+    }),
+  });
+  await expect(transport.readState.publish?.(event, signal)).rejects.toThrow(
+    "blocked: read-state quota",
+  );
+  vi.mocked(invoke).mockRejectedValueOnce("Relay response was interrupted");
+  await expect(transport.readState.publish?.(event, signal)).rejects.toThrow(
+    "Relay response was interrupted",
+  );
+  vi.mocked(invoke).mockResolvedValueOnce({
+    status: 429,
+    headers: {},
+    body: JSON.stringify({
+      error: "rate-limited: quota exceeded; retry in 30s",
+    }),
+  });
+  await expect(transport.readState.publish?.(event, signal)).rejects.toThrow(
+    "rate-limited: quota exceeded",
+  );
+  const dispatched = requests.length;
+  const publications = vi
+    .mocked(invoke)
+    .mock.calls.filter(
+      ([command]) => command === "relay_publish_read_state",
+    ).length;
+  await expect(
+    transport.query([{ kinds: [9], limit: 1 }], signal),
+  ).rejects.toThrow("Relay requests paused");
+  await expect(
+    transport.readStateSnapshot?.(signal, "read", "foreground"),
+  ).rejects.toThrow("Relay requests paused");
+  expect(requests).toHaveLength(dispatched);
+  expect(
+    vi
+      .mocked(invoke)
+      .mock.calls.filter(([command]) => command === "relay_publish_read_state"),
+  ).toHaveLength(publications);
+});
+
+it("holds native publication admission until cancelled IPC settles", async () => {
+  const transport = await connectNativeTransport(
+    "https://publication-slots.test",
+  );
+  const readState = transport.readState;
+  assert.exists(readState);
+  const event = signed(viewer, {
+    kind: 30078,
+    created_at: 1700000010,
+    tags: [
+      ["d", `read-state:${"a".repeat(32)}`],
+      ["t", "read-state"],
+    ],
+    content: "ciphertext",
+  });
+  const gates = Array.from({ length: 6 }, () =>
+    deferred<{
+      status: number;
+      headers: Record<string, string>;
+      body: string;
+    }>(),
+  );
+  for (const gate of gates)
+    vi.mocked(invoke).mockImplementationOnce(() => gate.promise);
+  vi.mocked(invoke).mockResolvedValueOnce({
+    status: 200,
+    headers: {},
+    body: JSON.stringify({ accepted: true, event_id: event.id }),
+  });
+  const controllers = gates.map(() => new AbortController());
+  const publications = controllers.map((controller) =>
+    readState.publish?.(event, controller.signal),
+  );
+  const settled = Promise.allSettled(publications);
+  try {
+    await vi.waitFor(() =>
+      expect(
+        vi
+          .mocked(invoke)
+          .mock.calls.filter(
+            ([command]) => command === "relay_publish_read_state",
+          ),
+      ).toHaveLength(6),
+    );
+    controllers[0]?.abort();
+    const queued = readState.publish?.(event, new AbortController().signal);
+    expect(
+      vi
+        .mocked(invoke)
+        .mock.calls.filter(
+          ([command]) => command === "relay_publish_read_state",
+        ),
+    ).toHaveLength(6);
+    gates[0]?.resolve({
+      status: 200,
+      headers: {},
+      body: JSON.stringify({ accepted: true, event_id: event.id }),
+    });
+    await vi.waitFor(() =>
+      expect(
+        vi
+          .mocked(invoke)
+          .mock.calls.filter(
+            ([command]) => command === "relay_publish_read_state",
+          ),
+      ).toHaveLength(7),
+    );
+    await expect(queued).resolves.toBeUndefined();
+  } finally {
+    for (const gate of gates)
+      gate.resolve({
+        status: 200,
+        headers: {},
+        body: JSON.stringify({ accepted: true, event_id: event.id }),
+      });
+    await settled;
+  }
+});
+
 it("reads the complete snapshot and activity through the native query route", async () => {
   discovery = {
     read_state_snapshot: {

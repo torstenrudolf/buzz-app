@@ -27,11 +27,25 @@ import {
 } from "./read-state-snapshot";
 import {
   acceptPublish,
+  admitSignedRequest,
   connectSignedTransport,
   admittedSignedWorkflowRead,
   type ReadTransport,
   type Signer,
 } from "./transport";
+import { readApiFailure } from "./http-admission";
+
+async function nativeReadInvoke<T>(
+  command: string,
+  args: Record<string, unknown>,
+) {
+  try {
+    return await invoke<T>(command, args);
+  } catch (error) {
+    // Tauri commands reject with a string; domain health expects an Error.
+    throw typeof error === "string" ? new Error(error) : error;
+  }
+}
 
 export const nativeWriteKinds = [
   30078,
@@ -296,13 +310,12 @@ export async function connectNativeTransport(
       ...(readCommunity ? { communityId: readCommunity } : {}),
       async decode(events: readonly RelayEvent[], signal: AbortSignal) {
         signal.throwIfAborted();
-        const decoded = await invoke<{ eventId: string; blob: unknown }[]>(
-          "relay_decode_read_state",
-          {
-            community: origin,
-            events,
-          },
-        );
+        const decoded = await nativeReadInvoke<
+          { eventId: string; blob: unknown }[]
+        >("relay_decode_read_state", {
+          community: origin,
+          events,
+        });
         signal.throwIfAborted();
         for (const item of decoded) parseReadBlob(item.blob);
         return decoded;
@@ -311,7 +324,7 @@ export async function connectNativeTransport(
         signal.throwIfAborted();
         parseReadBlob(intent.blob);
         const event = eventDto(
-          await invoke("relay_sign_read_state", {
+          await nativeReadInvoke("relay_sign_read_state", {
             community: origin,
             intent,
           }),
@@ -325,36 +338,46 @@ export async function connectNativeTransport(
         signal.throwIfAborted();
         if (event.pubkey !== transport.viewer || !readCoordinate(event))
           throw new Error("Invalid read-state event");
-        const result = await invoke<{
-          status: number;
-          headers: Record<string, string>;
-          body: string;
-        }>("relay_publish_read_state", { community: origin, event });
+        const response = await admitSignedRequest(
+          origin,
+          transport.viewer,
+          async () => {
+            // Tauri IPC cannot abort the underlying request. Keep admission until
+            // it settles even if the caller no longer needs the receipt.
+            const result = await nativeReadInvoke<{
+              status: number;
+              headers: Record<string, string>;
+              body: string;
+            }>("relay_publish_read_state", { community: origin, event });
+            return new Response(result.body, {
+              status: result.status,
+              headers: result.headers,
+            });
+          },
+          signal,
+        );
         signal.throwIfAborted();
-        const response = new Response(result.body, {
-          status: result.status,
-          headers: result.headers,
-        });
-        if (!response.ok)
-          throw new Error(`Read-state publication failed (${response.status})`);
-        const receipt = await response.json();
-        if (receipt?.accepted !== true || receipt?.event_id !== event.id)
-          throw new Error("Relay returned an invalid delivery receipt");
+        await acceptPublish(response, event.id);
       },
     },
     ...(readCommunity
       ? {
-          async readStateSnapshot(signal: AbortSignal) {
-            const response = await nativeRelayRequest(
+          async readStateSnapshot(signal: AbortSignal, _requestId, priority) {
+            const response = await admitSignedRequest(
               origin,
-              "/query",
-              readSnapshotFilter(transport.viewer),
+              transport.viewer,
+              () =>
+                nativeRelayRequest(
+                  origin,
+                  "/query",
+                  readSnapshotFilter(transport.viewer),
+                ),
               signal,
+              priority,
             );
+            signal.throwIfAborted();
             if (!response.ok)
-              throw new Error(
-                `Read-state snapshot failed (${response.status})`,
-              );
+              throw new Error((await readApiFailure(response)).error);
             return parseReadSnapshot(
               JSON.parse(await readSnapshotText(response)),
               transport.viewer,
