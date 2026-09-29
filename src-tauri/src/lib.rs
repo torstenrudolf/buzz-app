@@ -18,8 +18,9 @@ use os_idle::get_os_idle_seconds;
 mod relay;
 use identity::{identity_create, identity_export, identity_import, identity_restore, IdentityHost};
 use relay::{
-    relay_channel_publish, relay_channel_sign, relay_direct_message, relay_http, relay_kit_decode,
-    relay_kit_prepare, relay_kit_sign, relay_sign, relay_workflow_runs,
+    relay_channel_publish, relay_channel_sign, relay_decode_read_state, relay_direct_message,
+    relay_http, relay_kit_decode, relay_kit_prepare, relay_kit_sign, relay_publish_read_state,
+    relay_sign, relay_sign_read_state, relay_workflow_runs,
 };
 mod terminal;
 use agent_models::{agent_models_begin, agent_models_cancel, agent_models_run, ModelHost};
@@ -376,6 +377,9 @@ fn commands<R: tauri::Runtime>() -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Sen
         identity_create,
         identity_export,
         relay_sign,
+        relay_decode_read_state,
+        relay_sign_read_state,
+        relay_publish_read_state,
         relay_http,
         relay_workflow_runs,
         relay_channel_sign,

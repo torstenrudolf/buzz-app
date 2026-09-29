@@ -180,6 +180,34 @@ fn real_ipc_restores_identity_signs_and_rejects_invalid_requests() {
     .unwrap();
     assert_eq!(event["pubkey"], public);
     verify(&event);
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let read = invoke(
+        "relay_sign_read_state",
+        serde_json::json!({
+            "community": "https://relay.test", "intent": {"slot": "a".repeat(32), "createdAt": now,
+                "blob": {"v": 1, "client_id": "fixture", "contexts": {"channel": now}}}
+        }),
+    )
+    .unwrap();
+    verify(&read);
+    let decoded = invoke(
+        "relay_decode_read_state",
+        serde_json::json!({
+            "community": "https://relay.test", "events": [read.clone()]
+        }),
+    )
+    .unwrap();
+    assert_eq!(decoded[0]["eventId"], read["id"]);
+    assert!(invoke(
+        "relay_publish_read_state",
+        serde_json::json!({
+            "community": "https://relay.test", "event": event
+        })
+    )
+    .is_err());
     assert!(invoke("relay_http", serde_json::json!({
         "community": "https://relay.test", "path": "//other.test/query", "method": "POST", "body": "[]"
     })).is_err());
@@ -584,4 +612,52 @@ async fn discovery_body_is_bounded_for_length_and_chunked_transfer() {
         );
         task.join().unwrap();
     }
+}
+
+#[tokio::test]
+async fn read_state_codec_round_trips_and_rejects_foreign_intent() {
+    let host = IdentityHost::fixture();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let blob = serde_json::json!({"v":1,"client_id":"fixture","contexts":{"channel":now}});
+    let signed = host
+        .sign_read_state("a".repeat(32), now, blob.clone())
+        .await
+        .unwrap();
+    verify(&signed);
+    let decoded = host.decode_read_state(vec![signed.clone()]).await.unwrap();
+    assert_eq!(decoded[0]["eventId"], signed["id"]);
+    assert_eq!(decoded[0]["blob"], blob);
+    assert!(host
+        .sign_read_state("x".repeat(32), now, blob.clone())
+        .await
+        .is_err());
+    assert!(host
+        .sign_read_state("a".repeat(32), now - 120, blob)
+        .await
+        .is_err());
+    let mut tampered = signed.clone();
+    tampered["tags"] = serde_json::json!([["d", "channel-sort"], ["t", "read-state"]]);
+    assert!(host.decode_read_state(vec![tampered]).await.is_err());
+    let mut duplicate = signed.clone();
+    duplicate["tags"] = serde_json::json!([
+        ["d", "read-state:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],
+        ["d", "channel-sort"],
+        ["t", "read-state"]
+    ]);
+    assert!(host.decode_read_state(vec![duplicate]).await.is_err());
+    assert!(host.decode_read_state(vec![signed; 17]).await.is_err());
+}
+
+#[test]
+fn general_signing_never_accepts_read_state_kind() {
+    let event = EventTemplate {
+        kind: 30078,
+        created_at: 0,
+        tags: vec![],
+        content: String::new(),
+    };
+    assert!(validate_event("https://relay.test", &event).is_err());
 }

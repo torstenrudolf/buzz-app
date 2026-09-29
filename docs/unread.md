@@ -148,10 +148,11 @@ sign/publish it is `read-only`. Read sync requires `frontier-sync`. Local manual
 intent can still be saved independently of remote capability.
 
 Signed kind-30078 NIP-RS blobs use self-encryption and a persisted random coordinate
-slot/client ID. The Node development broker alone owns the key, narrow codec,
-signing, same-origin checks, scoped NIP-98 and relay admission. Plugins receive no
-generic encryption or arbitrary-kind signing capability. Packaged builds do not
-include this development broker and do not gain a native read-state signer here.
+slot/client ID. The Node development broker or the packaged Tauri identity host
+owns the key and narrow codec. Native decode verifies own signed NIP-RS coordinates; native signing
+accepts only bounded read-state intent, and publication rechecks the signed event
+before sending it. Plugins receive no generic encryption or arbitrary-kind signing
+capability. Both transports use scoped relay admission and NIP-98 for reads and writes.
 
 Accepted local intent is saved before signing; the exact signed event is saved
 before sending. Lost responses/readback retain that event identity for retry.

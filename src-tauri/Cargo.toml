@@ -36,7 +36,7 @@ bech32 = "0.11"
 secp256k1 = { version = "0.31", default-features = false, features = ["std"] }
 getrandom = "0.3"
 zeroize = "1.9"
-nostr = { version = "0.44", features = ["nip44"] }
+nostr = { version = "0.44", default-features = false, features = ["std", "nip44"] }
 
 [dev-dependencies]
 tempfile = "3"

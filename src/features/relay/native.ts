@@ -17,6 +17,14 @@ import { WORKFLOW_KINDS } from "../workflows/protocol";
 
 import { PublishRejected } from "./outbox";
 
+import { readCoordinate, parseReadBlob } from "./read-state-model";
+import type { ReadStateSigning } from "./read-state-host";
+import {
+  readSnapshotCommunity,
+  readSnapshotFilter,
+  parseReadSnapshot,
+  readSnapshotText,
+} from "./read-state-snapshot";
 import {
   acceptPublish,
   connectSignedTransport,
@@ -137,6 +145,7 @@ export async function connectNativeTransport(
   );
   signal?.throwIfAborted();
   const writer = transport.writer;
+  const readCommunity = readSnapshotCommunity(info.read_state_snapshot);
   if (!writer) throw new Error("Native relay writer is unavailable");
   const commandWriter = (
     route: "channel-details" | "channel-lifecycle" | "identity-archive",
@@ -283,6 +292,96 @@ export async function connectNativeTransport(
       },
     },
 
+    readState: {
+      ...(readCommunity ? { communityId: readCommunity } : {}),
+      async decode(events: readonly RelayEvent[], signal: AbortSignal) {
+        signal.throwIfAborted();
+        const decoded = await invoke<{ eventId: string; blob: unknown }[]>(
+          "relay_decode_read_state",
+          {
+            community: origin,
+            events,
+          },
+        );
+        signal.throwIfAborted();
+        for (const item of decoded) parseReadBlob(item.blob);
+        return decoded;
+      },
+      async sign(intent: ReadStateSigning, signal: AbortSignal) {
+        signal.throwIfAborted();
+        parseReadBlob(intent.blob);
+        const event = eventDto(
+          await invoke("relay_sign_read_state", {
+            community: origin,
+            intent,
+          }),
+        );
+        signal.throwIfAborted();
+        if (event.pubkey !== transport.viewer || !readCoordinate(event))
+          throw new Error("Invalid read-state event");
+        return event;
+      },
+      async publish(event: RelayEvent, signal: AbortSignal) {
+        signal.throwIfAborted();
+        if (event.pubkey !== transport.viewer || !readCoordinate(event))
+          throw new Error("Invalid read-state event");
+        const result = await invoke<{
+          status: number;
+          headers: Record<string, string>;
+          body: string;
+        }>("relay_publish_read_state", { community: origin, event });
+        signal.throwIfAborted();
+        const response = new Response(result.body, {
+          status: result.status,
+          headers: result.headers,
+        });
+        if (!response.ok)
+          throw new Error(`Read-state publication failed (${response.status})`);
+        const receipt = await response.json();
+        if (receipt?.accepted !== true || receipt?.event_id !== event.id)
+          throw new Error("Read-state publication was not confirmed");
+      },
+    },
+    ...(readCommunity
+      ? {
+          async readStateSnapshot(signal: AbortSignal) {
+            const response = await nativeRelayRequest(
+              origin,
+              "/query",
+              readSnapshotFilter(transport.viewer),
+              signal,
+            );
+            if (!response.ok)
+              throw new Error(
+                `Read-state snapshot failed (${response.status})`,
+              );
+            return parseReadSnapshot(
+              JSON.parse(await readSnapshotText(response)),
+              transport.viewer,
+              readCommunity,
+              signal,
+            );
+          },
+        }
+      : {}),
+    async channelActivity(channelIds, signal) {
+      if (
+        channelIds.length < 1 ||
+        channelIds.length > 128 ||
+        channelIds.some((id) => !/^[a-zA-Z0-9_-]{1,128}$/.test(id))
+      )
+        throw new Error("Invalid channel activity demand");
+      return transport.query(
+        channelIds.map((channelId) => ({
+          kinds: [9, 40002, 40008, 45001, 45003],
+          "#h": [channelId],
+          limit: 1,
+        })),
+        signal,
+        "channel-activity",
+        "background",
+      );
+    },
     writer: {
       ...writer,
       kinds: creation ? [...nativeWriteKinds, 9007] : nativeWriteKinds,

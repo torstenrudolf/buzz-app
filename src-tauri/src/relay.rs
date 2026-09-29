@@ -307,6 +307,52 @@ fn validate_workflow_template(event: &EventTemplate) -> Result<()> {
     Ok(())
 }
 
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct ReadStateIntent {
+    slot: String,
+    created_at: u64,
+    blob: serde_json::Value,
+}
+
+#[tauri::command]
+pub(crate) async fn relay_decode_read_state(
+    host: tauri::State<'_, IdentityHost>,
+    community: String,
+    events: Vec<serde_json::Value>,
+) -> Result<serde_json::Value> {
+    origin(&community)?;
+    host.decode_read_state(events).await
+}
+
+#[tauri::command]
+pub(crate) async fn relay_sign_read_state(
+    host: tauri::State<'_, IdentityHost>,
+    community: String,
+    intent: ReadStateIntent,
+) -> Result<serde_json::Value> {
+    origin(&community)?;
+    host.sign_read_state(intent.slot, intent.created_at, intent.blob)
+        .await
+}
+
+/// Publication cannot be routed through the general event writer: it must verify
+/// the exact own, encrypted read-state coordinate before forwarding signed bytes.
+#[tauri::command]
+pub(crate) async fn relay_publish_read_state(
+    host: tauri::State<'_, IdentityHost>,
+    community: String,
+    event: serde_json::Value,
+) -> Result<RelayResponse> {
+    let url = request_url(&community, "/events", "POST")?;
+    let body = serde_json::to_string(&event).map_err(|_| "Invalid read-state event")?;
+    if body.len() > 64 * 1024 {
+        return Err("Invalid read-state event".into());
+    }
+    host.decode_read_state(vec![event]).await?;
+    send(host.inner(), url, "POST", Some(body), true, MAX_RESPONSE).await
+}
+
 #[derive(Serialize)]
 pub(crate) struct RelayResponse {
     status: u16,

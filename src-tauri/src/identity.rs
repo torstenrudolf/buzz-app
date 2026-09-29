@@ -253,6 +253,36 @@ impl Identity {
     }
 }
 
+fn valid_read_coordinate(value: &str) -> bool {
+    value.strip_prefix("read-state:").is_some_and(|slot| {
+        slot.len() == 32
+            && slot
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    })
+}
+
+fn validate_read_blob(blob: &serde_json::Value) -> Result<()> {
+    let contexts = blob["contexts"]
+        .as_object()
+        .ok_or("Unsupported read-state blob")?;
+    let client = blob["client_id"]
+        .as_str()
+        .ok_or("Unsupported read-state blob")?;
+    if blob["v"] != 1
+        || client.is_empty()
+        || client.chars().count() > 64
+        || contexts.len() > 10_000
+        || serde_json::to_vec(blob)
+            .map_err(|_| "Unsupported read-state blob")?
+            .len()
+            > 128 * 1024
+    {
+        return Err("Unsupported read-state blob".into());
+    }
+    Ok(())
+}
+
 #[derive(Clone)]
 pub struct IdentityHost(Arc<Mutex<Identity>>);
 impl IdentityHost {
@@ -269,6 +299,121 @@ impl IdentityHost {
             identity
                 .restore()?
                 .ok_or_else(|| "Set up your identity first".into())
+        })
+        .await
+    }
+
+    /// Decrypt only verified, self-authored NIP-RS slots.
+    pub(crate) async fn decode_read_state(
+        &self,
+        events: Vec<serde_json::Value>,
+    ) -> Result<serde_json::Value> {
+        with_identity(self.clone(), move |identity| {
+            identity.restore()?;
+            let State::Ready(key) = &identity.state else {
+                return Err("Set up your identity first".into());
+            };
+            if events.len() > 16
+                || serde_json::to_vec(&events)
+                    .map_err(|_| "Read-state decode capacity exceeded")?
+                    .len()
+                    > 512 * 1024
+            {
+                return Err("Read-state decode capacity exceeded".into());
+            }
+            let secret = nostr::SecretKey::from_slice(key.0.as_ref())
+                .map_err(|_| "Invalid read-state event")?;
+            let public = nostr::Keys::new(secret.clone()).public_key();
+            let mut result = Vec::new();
+            for raw in events {
+                if serde_json::to_vec(&raw)
+                    .map_err(|_| "Invalid read-state event")?
+                    .len()
+                    > 96 * 1024
+                {
+                    return Err("Invalid read-state event".into());
+                }
+                // Inspect raw tag arrays before deserialization; normalization must not discard duplicate selectors.
+                let tags = raw["tags"].as_array().ok_or("Invalid read-state event")?;
+                let ds: Vec<_> = tags.iter().filter(|tag| tag[0] == "d").collect();
+                let ts: Vec<_> = tags
+                    .iter()
+                    .filter(|tag| tag[0] == "t" && tag[1] == "read-state")
+                    .collect();
+                if ds.len() != 1
+                    || ts.len() != 1
+                    || !ds[0][1].as_str().is_some_and(valid_read_coordinate)
+                {
+                    return Err("Invalid read-state event".into());
+                }
+                let event: nostr::Event =
+                    serde_json::from_value(raw).map_err(|_| "Invalid read-state event")?;
+                event.verify().map_err(|_| "Invalid read-state event")?;
+                if event.kind.as_u16() != 30078 || event.pubkey != public {
+                    return Err("Invalid read-state event".into());
+                }
+                let plaintext = nostr::nips::nip44::decrypt(&secret, &public, &event.content)
+                    .map_err(|_| "Invalid read-state event")?;
+                if plaintext.len() > 128 * 1024 {
+                    return Err("Read-state plaintext capacity exceeded".into());
+                }
+                let blob: serde_json::Value =
+                    serde_json::from_str(&plaintext).map_err(|_| "Invalid read-state event")?;
+                validate_read_blob(&blob)?;
+                result.push(serde_json::json!({"eventId": event.id.to_hex(), "blob": blob}));
+            }
+            Ok(serde_json::Value::Array(result))
+        })
+        .await
+    }
+
+    /// Sign only bounded NIP-RS intent, never caller-supplied ciphertext.
+    pub(crate) async fn sign_read_state(
+        &self,
+        slot: String,
+        created_at: u64,
+        blob: serde_json::Value,
+    ) -> Result<serde_json::Value> {
+        with_identity(self.clone(), move |identity| {
+            identity.restore()?;
+            let State::Ready(key) = &identity.state else {
+                return Err("Set up your identity first".into());
+            };
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_err(|_| "System clock is unavailable")?
+                .as_secs();
+            if !valid_read_coordinate(&format!("read-state:{slot}"))
+                || created_at > u32::MAX as u64
+                || now.abs_diff(created_at) > 60
+            {
+                return Err("Invalid read-state signing intent".into());
+            }
+            validate_read_blob(&blob)?;
+            let plaintext =
+                serde_json::to_string(&blob).map_err(|_| "Invalid read-state signing intent")?;
+            if plaintext.len() > 40 * 1024 {
+                return Err("Read-state publication capacity exceeded".into());
+            }
+            let secret = nostr::SecretKey::from_slice(key.0.as_ref())
+                .map_err(|_| "Invalid read-state signing intent")?;
+            let public = nostr::Keys::new(secret.clone()).public_key();
+            let content = nostr::nips::nip44::encrypt(
+                &secret,
+                &public,
+                plaintext,
+                nostr::nips::nip44::Version::V2,
+            )
+            .map_err(|_| "Read-state signing failed")?;
+            key.sign(EventTemplate {
+                created_at,
+                kind: 30078,
+                content,
+                tags: vec![
+                    vec!["d".into(), format!("read-state:{slot}")],
+                    vec!["t".into(), "read-state".into()],
+                ],
+            })
         })
         .await
     }
