@@ -620,7 +620,7 @@ impl Uploads {
     fn cancel(&self, id: &str) {
         let mut uploads = self.lock();
         if let Some(sender) = uploads.active.remove(id) {
-            drop(sender.send(()));
+            let _ = sender.send(());
             return;
         }
         let now = Instant::now();
