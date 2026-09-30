@@ -492,7 +492,7 @@ async fn send(
         .send()
         .await
         .map_err(|_| "Relay request could not be confirmed")?;
-    read_response(response, MAX_RESPONSE).await
+    read_response(response, response_limit).await
 }
 
 async fn read_response(mut response: reqwest::Response, limit: usize) -> Result<RelayResponse> {
