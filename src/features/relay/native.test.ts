@@ -671,7 +671,6 @@ it("holds the shared admission lease until a cancelled native history request se
   expect(requests.at(-1)?.path).toBe("/query");
 });
 
-
 it("advertises purpose-bound channel capabilities and gates creation on NIP-29", async () => {
   const transport = await connectNativeTransport(community);
   expect(transport.archiveAuthority).toBe(relay.pubkey);
