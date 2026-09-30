@@ -574,7 +574,7 @@ it("workflow history surfaces bounded host refusals and fences late native resul
 });
 
 it("shares workflow history admission and cooldown with signed queries", async () => {
-  const transport = await connectNativeTransport(community);
+  const transport = await connectNativeTransport("https://workflow-quota.test");
   assert.exists(transport.workflows);
   const id = "11111111-1111-4111-8111-111111111111";
   const quota = '{"error":"rate-limited: quota exceeded; retry in 60s"}';
