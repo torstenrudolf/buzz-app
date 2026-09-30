@@ -427,7 +427,7 @@ fn workflow_signer_rejects_nonworkflow_deletes_and_invalid_commands() {
 
 #[tokio::test]
 async fn workflow_get_is_authenticated_without_payload_and_never_redirects() {
-    let (mut url, task) = fixture_server("HTTP/1.1 302 Found\r\nLocation: https://other.test/\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}");
+    let (mut url, task) = fixture_server("HTTP/1.1 302 Found\r\nLocation: https://other.test/\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}".into());
     url.set_path("/workflows/11111111-1111-4111-8111-111111111111/runs");
     url.set_query(Some("limit=20"));
     let response = send(
