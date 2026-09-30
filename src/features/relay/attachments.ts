@@ -28,7 +28,8 @@ export const UPLOAD_FAILURES = {
   size: "File exceeds the supported limit: images 50 MiB, GIFs 10 MiB, documents 100 MiB, videos 500 MiB. The relay may enforce a lower limit.",
   image: "Image conversion failed. This HEIC/HEIF photo could not be prepared.",
   ffmpeg:
-    "Media conversion requires ffmpeg on this computer. Install it, then restart the app’s dev server.",
+    "Media conversion requires ffmpeg on this computer. Install it, then restart the app.",
+  io: "Media preparation could not access temporary storage. Check available disk space and retry.",
   video:
     "Video preparation failed. This recording could not be converted to MP4.",
   capacity: "Uploads are busy. Retry this file shortly.",
@@ -201,68 +202,74 @@ export function hostUpload(
     ]);
     const response = await send(file, bounded);
     bounded.throwIfAborted();
-    if ([401, 403, 413, 429].includes(response.status)) {
-      try {
-        await response.body?.cancel();
-      } catch {
-        /* Keep the known failure. */
-      }
-      throw new UploadError(
-        response.status === 413
-          ? "size"
-          : response.status === 429
-            ? "capacity"
-            : "denied",
-      );
-    }
-    let text = "";
-    const reader = response.body?.getReader();
-    if (!reader) throw new UploadError("invalid");
-    try {
-      const decoder = new TextDecoder();
-      let size = 0;
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        size += value.byteLength;
-        if (size > 8192) throw new UploadError("invalid");
-        text += decoder.decode(value, { stream: true });
-      }
-      text += decoder.decode();
-    } finally {
-      try {
-        await reader.cancel();
-      } catch {
-        /* Do not replace a parsing failure. */
-      }
-    }
-    if (!response.ok) {
-      let code: unknown;
-      try {
-        code = (JSON.parse(text) as { code?: unknown } | null)?.code;
-      } catch {
-        /* A relay error body is `{ error }` or plain text. */
-      }
-      throw new UploadError(
-        typeof code === "string" && Object.hasOwn(UPLOAD_FAILURES, code)
-          ? (code as UploadCode)
-          : // The relay's own content rejections (the broker maps these the same way).
-            [400, 415, 422].includes(response.status)
-            ? /metadata/i.test(text)
-              ? "metadata"
-              : "rejected"
-            : "failed",
-      );
-    }
-    let body: unknown;
-    try {
-      body = JSON.parse(text);
-    } catch {
-      throw new UploadError("invalid");
-    }
+    const body = await readUploadResponse(response);
     bounded.throwIfAborted();
     return validateUploadResult(body, origin, file.size, file.name);
   };
+}
+
+/** One relay-status and bounded-body policy for raw and host-prepared uploads. */
+export async function readUploadResponse(response: Response): Promise<unknown> {
+  if ([401, 403, 413, 429].includes(response.status)) {
+    try {
+      await response.body?.cancel();
+    } catch {
+      /* Keep the known failure. */
+    }
+    throw new UploadError(
+      response.status === 413
+        ? "size"
+        : response.status === 429
+          ? "capacity"
+          : "denied",
+    );
+  }
+  let text = "";
+  const reader = response.body?.getReader();
+  if (!reader) throw new UploadError("invalid");
+  try {
+    const decoder = new TextDecoder();
+    let size = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > 8192) throw new UploadError("invalid");
+      text += decoder.decode(value, { stream: true });
+    }
+    text += decoder.decode();
+  } finally {
+    try {
+      await reader.cancel();
+    } catch {
+      /* Do not replace a parsing failure. */
+    }
+  }
+  if (!response.ok) {
+    let code: unknown;
+    try {
+      code = (JSON.parse(text) as { code?: unknown } | null)?.code;
+    } catch {
+      /* A relay error body is `{ error }` or plain text. */
+    }
+    throw new UploadError(
+      typeof code === "string" && Object.hasOwn(UPLOAD_FAILURES, code)
+        ? (code as UploadCode)
+        : // The relay's own content rejections (the broker maps these the same way).
+          [400, 415, 422].includes(response.status)
+          ? /metadata/i.test(text)
+            ? "metadata"
+            : "rejected"
+          : "failed",
+    );
+  }
+  let body: unknown;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    throw new UploadError("invalid");
+  }
+  return body;
 }
 
 /** Only completed uploads enter the existing message/outbox contract. */

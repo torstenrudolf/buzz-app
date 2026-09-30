@@ -14,6 +14,18 @@ it.each(["qt  ", "isom", "iso2", "mp42", "M4V ", "avc1", "F4V "])(
     expect(videoDemuxer(bmff(brand))).toBe("mov");
   },
 );
+it.each(["M4VH", "M4VP", "NDSS", "NSDC"])(
+  "accepts legacy MOV video brand %s",
+  (brand) => expect(videoDemuxer(bmff(brand))).toBe("mov"),
+);
+it.each(["free", "wide", "skip"])("skips leading %s MOV box", (box) => {
+  expect(
+    videoDemuxer(bytes(`\0\0\0\x08${box}\0\0\0\x14ftypqt  \0\0\0\0`)),
+  ).toBe("mov");
+});
+it.each(["moov", "mdat"])("recognizes legacy %s MOV box", (box) => {
+  expect(videoDemuxer(bytes(`\0\0\0\x0c${box}\0\0\0\0`))).toBe("mov");
+});
 it.each(["M4A ", "M4B ", "F4A ", "zzzz", "avif", "heic", "mif1"])(
   "does not turn audio/still/unknown BMFF %s into video",
   (brand) => {

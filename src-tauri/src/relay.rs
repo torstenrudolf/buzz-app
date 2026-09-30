@@ -562,16 +562,8 @@ pub(crate) async fn relay_upload(
     };
     // Dropping the request future closes the connection, so a cancelled upload
     // stops sending and releases its buffer.
-    let result = if preparation.is_some() {
-        upload_prepared(
-            host.inner(),
-            url,
-            kind,
-            body.clone(),
-            preparation.as_deref(),
-            &mut cancelled,
-        )
-        .await
+    let result = if let Some(mode) = preparation.as_deref() {
+        upload_prepared(host.inner(), url, body.clone(), mode, &mut cancelled).await
     } else {
         tokio::select! {
             result = upload(host.inner(), url, kind, body.clone()) => result,
@@ -591,29 +583,20 @@ pub(crate) fn relay_upload_cancel(uploads: tauri::State<'_, Uploads>, id: String
 async fn upload_prepared(
     host: &IdentityHost,
     url: Url,
-    kind: Option<&str>,
     body: Vec<u8>,
-    preparation: Option<&str>,
+    mode: &str,
     cancelled: &mut oneshot::Receiver<()>,
 ) -> Result<RelayResponse> {
-    let Some(mode) = preparation else {
-        return upload(host, url, kind, body).await;
-    };
     let (body, kind) = match media_preparation::prepare(body, mode, cancelled).await {
         Ok(value) => value,
-        Err(code) => {
+        Err(media_preparation::PreparationError::Cancelled) => {
+            return Err("Upload cancelled".into())
+        }
+        Err(error) => {
             return Ok(RelayResponse {
-                status: if code == "capacity" {
-                    429
-                } else if code == "ffmpeg" {
-                    503
-                } else if code == "size" {
-                    413
-                } else {
-                    400
-                },
+                status: error.status(),
                 headers: BTreeMap::new(),
-                body: serde_json::json!({ "code": code }).to_string(),
+                body: serde_json::json!({ "code": error.code() }).to_string(),
             })
         }
     };

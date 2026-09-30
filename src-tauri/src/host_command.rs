@@ -168,7 +168,7 @@ pub(crate) async fn plugin_host_run_command(
         .flatten())
 }
 
-fn effective_path() -> OsString {
+pub(crate) fn effective_path() -> OsString {
     let path = std::env::var_os("PATH").unwrap_or_default();
     #[cfg(target_os = "macos")]
     {
@@ -189,7 +189,7 @@ fn effective_path() -> OsString {
     }
 }
 
-fn resolve_program(program: &str, effective_path: &OsStr) -> PathBuf {
+pub(crate) fn resolve_program(program: &str, effective_path: &OsStr) -> PathBuf {
     #[cfg(target_os = "macos")]
     {
         use std::os::unix::fs::PermissionsExt;

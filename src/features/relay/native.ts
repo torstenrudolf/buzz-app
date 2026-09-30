@@ -9,6 +9,8 @@ import {
 } from "./video-preparation";
 import {
   hostUpload,
+  readUploadResponse,
+  UPLOAD_TIMEOUT_MS,
   UploadError,
   UPLOAD_MAX_BYTES,
   validateUploadResult,
@@ -154,7 +156,12 @@ async function nativeAttachmentUpload(
       origin,
     )(file, signal);
   }
-  const bounded = AbortSignal.any([signal, AbortSignal.timeout(600_000)]);
+  // Native preparation has its own 600 s deadline; leave a separate upload
+  // budget, as broker prepareMedia + hostUpload do.
+  const bounded = AbortSignal.any([
+    signal,
+    AbortSignal.timeout(600_000 + UPLOAD_TIMEOUT_MS),
+  ]);
   const response = await nativeUpload(
     origin,
     file,
@@ -162,29 +169,7 @@ async function nativeAttachmentUpload(
     `${heic ? "image" : voice ? "voice" : "video"}:${demuxer}`,
   );
   bounded.throwIfAborted();
-  if (!response.ok) {
-    let code: unknown;
-    try {
-      code = ((await response.json()) as { code?: unknown }).code;
-    } catch {
-      /* Relay errors need not be JSON. */
-    }
-    throw new UploadError(
-      code === "ffmpeg" ||
-        code === "size" ||
-        code === "capacity" ||
-        code === "image" ||
-        code === "video"
-        ? code
-        : "failed",
-    );
-  }
-  let body: unknown;
-  try {
-    body = await response.json();
-  } catch {
-    throw new UploadError("invalid");
-  }
+  const body = await readUploadResponse(response);
   const type = heic ? "image/jpeg" : "video/mp4";
   const name = `${file.name.replace(/\.[^.]+$/, "") || "Attachment"}.${heic ? "jpg" : "mp4"}`;
   bounded.throwIfAborted();

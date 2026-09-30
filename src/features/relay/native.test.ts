@@ -838,6 +838,30 @@ it("prepares HEIC and video in the native upload without dev-broker fetches", as
   expect(fetch).not.toHaveBeenCalled();
 });
 
+it.each([
+  [403, { error: "no access" }, "denied"],
+  [413, { error: "too large" }, "size"],
+  [429, { error: "busy" }, "capacity"],
+  [422, { error: "metadata forbidden" }, "metadata"],
+  [415, { error: "unsupported" }, "rejected"],
+  [400, { code: "io" }, "io"],
+])(
+  "maps prepared-upload response %i through the shared policy",
+  async (status, body, code) => {
+    const transport = await connectNativeTransport(community);
+    assert(transport.uploadAttachment);
+    preparedResponse = () => ({ status, body });
+    const avi = new File(
+      [new Uint8Array([82, 73, 70, 70, 0, 0, 0, 0, 65, 86, 73, 32])],
+      "b.avi",
+      { type: "video/avi" },
+    );
+    await expect(
+      transport.uploadAttachment(avi, new AbortController().signal),
+    ).rejects.toMatchObject({ code });
+  },
+);
+
 it("refuses native preparation failures and does not accept a mismatched prepared type", async () => {
   const transport = await connectNativeTransport(community);
   assert(transport.uploadAttachment);
