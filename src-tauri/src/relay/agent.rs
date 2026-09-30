@@ -418,7 +418,7 @@ fn decode_memories_with_key(
     }
 
     let secret_key = NostrSecretKey::from_slice(secret).map_err(|_| "Invalid identity")?;
-    let public_key = NostrPublicKey::from_hex(&agent).map_err(|_| "Invalid memory target")?;
+    let public_key = NostrPublicKey::from_hex(agent).map_err(|_| "Invalid memory target")?;
     let conversation =
         ConversationKey::derive(&secret_key, &public_key).map_err(|_| "Invalid memory target")?;
     let mut heads: BTreeMap<String, (u64, String, Value)> = BTreeMap::new();
@@ -444,7 +444,7 @@ fn decode_memories_with_key(
             {
                 return Err("Invalid memory envelope".into());
             }
-            let text = decrypt(secret, &agent, &event.content)?;
+            let text = decrypt(secret, agent, &event.content)?;
             let payload = STANDARD
                 .decode(&event.content)
                 .map_err(|_| "Invalid memory envelope")?;
@@ -497,7 +497,7 @@ fn decode_memories_with_key(
         match candidate {
             Ok((name, timestamp, id, entry)) => {
                 let previous = heads.get(&name);
-                if previous.is_none_or(|(time, previous_id, _)| {
+                if previous.map_or(true, |(time, previous_id, _)| {
                     timestamp > *time || (timestamp == *time && id < *previous_id)
                 }) {
                     let added = serde_json::to_vec(&entry)
@@ -617,7 +617,7 @@ fn read_agent_library(path: PathBuf) -> Result<Value> {
                 }
             });
         if pubkey.is_empty() {
-            if row.get("slug").is_none_or(Value::is_null) {
+            if row.get("slug").map_or(true, Value::is_null) {
                 continue;
             }
             let id = library_field(&row, "slug", 256)?;
