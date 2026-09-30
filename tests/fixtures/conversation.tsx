@@ -199,8 +199,14 @@ function withProbe(result: Awaited<ReturnType<PluginStorage["getCatalog"]>>) {
 }
 const storage: PluginStorage = {
   getCatalog: async () => withProbe(await api("catalog")),
-  changePlugin: async (action, id) =>
-    withProbe(await api("change", { action, id })),
+  changePlugin: async (action, id) => {
+    // The probe is fixture-only. Toggle it through the manager's change
+    // transaction, which cannot collide with the background catalog poll.
+    if (id !== "test.probe")
+      return withProbe(await api("change", { action, id }));
+    probeEnabled = action === "enable";
+    return withProbe(await api("catalog"));
+  },
   recoverSettings: () => api("recover", {}),
   readModule: async (id, revision) =>
     (await api("module", { id, revision })).code,
@@ -301,12 +307,12 @@ Object.assign(window, {
     removedResult: () => removedEditResult,
     async removeProbe() {
       attackRemoval = true;
-      probeEnabled = false;
-      await plugins.retry();
+      if (!(await plugins.change("disable", "test.probe")))
+        throw new Error("Probe removal was not applied");
     },
     async enableProbe() {
-      probeEnabled = true;
-      await plugins.retry();
+      if (!(await plugins.change("enable", "test.probe")))
+        throw new Error("Probe enable was not applied");
     },
     switch() {
       selected = 1 - selected;

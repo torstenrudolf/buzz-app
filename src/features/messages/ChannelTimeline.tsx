@@ -192,6 +192,22 @@ function Timeline({
           )?.id
         : undefined;
       const position = positionAt(element, renderedAnchor);
+      // A removed saved row cannot keep a restoration alive once a visible row
+      // replaces it. A temporarily unmounted row is still pending measurement.
+      if (anchor && !renderedAnchor && position.anchor)
+        restoredAnchor.current = undefined;
+      // A settled standalone row no longer needs correction. Membership groups
+      // retain the logical anchor even when their representative is in place.
+      if (
+        anchor &&
+        position.anchor?.id === renderedAnchor &&
+        position.anchor?.y === anchor.y &&
+        element.scrollHeight - element.clientHeight - element.scrollTop > 1 &&
+        !rows.some((row) =>
+          row.membershipRows?.some((member) => member.id === anchor.id),
+        )
+      )
+        restoredAnchor.current = undefined;
       // Virtua can emit the restoration scroll before mounting its visible
       // range. An anchorless observation must not erase the saved reading intent.
       // A reader gesture clears restoredAnchor before recording a new position.
@@ -217,10 +233,11 @@ function Timeline({
         element.clientHeight === previous.viewport &&
         element.scrollTop <
           previous.offset + Math.min(0, element.scrollHeight - previous.height);
-      if (previous && follow.current && !movedUp) position.bottom = true;
+      if (follow.current && !movedUp && (previous || !userScrolled.current))
+        position.bottom = true;
       // Restoration can scroll before Virtua measures rows beneath the anchor,
       // briefly reaching the estimated bottom. Only reader input may follow.
-      if (anchor) position.bottom = false;
+      if (restoredAnchor.current) position.bottom = false;
       savedPosition.current = position;
       follow.current = position.bottom;
       measuredPosition.current = {
@@ -320,9 +337,20 @@ function Timeline({
     };
     // Initial signature only; mutations invalidate the saved cache on remount.
   }, [channelId, geometry, scope]);
+  const revealed = useRef<string | undefined>(undefined);
   useLayoutEffect(() => {
     // Row updates include edits/reactions/replies, not only new message IDs.
     // Above-bottom reading and prepend anchoring remain Virtua's responsibility.
+    const revealIndex =
+      revealMessageId && revealed.current !== revealMessageId
+        ? rows.findIndex(
+            (row) =>
+              row.id === revealMessageId ||
+              row.membershipRows?.some(
+                (member) => member.id === revealMessageId,
+              ),
+          )
+        : -1;
     const previousIds = edges.current.ids;
     const arrivals = prepend
       ? 0
@@ -345,9 +373,20 @@ function Timeline({
       !size.width ||
       !size.height ||
       !rows.length ||
-      (settled.current && (!follow.current || prepend))
+      (revealIndex < 0 && settled.current && (!follow.current || prepend))
     )
       return;
+    // A send supersedes saved reading intent before the first scroll event.
+    // This effect also retains its height observer through late measurements.
+    if (revealIndex >= 0) {
+      revealed.current = revealMessageId;
+      intent.current++;
+      follow.current = true;
+      restoredAnchor.current = undefined;
+      savedPosition.current = { offset: 0, bottom: true };
+      measuredPosition.current = null;
+      userScrolled.current = false;
+    }
     // virtua attaches its scroller in an effect; wait through the StrictMode probe.
     // A new gesture wins over restoration queued before that gesture.
     const scheduledIntent = intent.current;
@@ -377,7 +416,10 @@ function Timeline({
         } else handle.current.scrollTo(restore.offset);
         follow.current = false;
       } else if (follow.current) {
-        handle.current.scrollToIndex(rows.length - 1, { align: "end" });
+        handle.current.scrollToIndex(
+          revealIndex >= 0 ? revealIndex : rows.length - 1,
+          { align: "end" },
+        );
       }
     };
     let frame = requestAnimationFrame(() => {
@@ -449,30 +491,8 @@ function Timeline({
     navigation,
     exactRevealed,
     updateJumpToLatest,
+    revealMessageId,
   ]);
-  const revealed = useRef<string | undefined>(undefined);
-  useLayoutEffect(() => {
-    if (!width || !revealMessageId || revealed.current === revealMessageId)
-      return;
-    const index = rows.findIndex(
-      (row) =>
-        row.id === revealMessageId ||
-        row.membershipRows?.some((member) => member.id === revealMessageId),
-    );
-    if (index < 0) return;
-    // A local send is explicit navigation intent, even when reading older messages.
-    // Wait for the optimistic row and virtualizer to mount before revealing it.
-    const frame = requestAnimationFrame(() => {
-      if (!handle.current) return;
-      if (!follow.current) intent.current++;
-      follow.current = true;
-      restoredAnchor.current = undefined;
-      userScrolled.current = false;
-      handle.current.scrollToIndex(index, { align: "end" });
-      revealed.current = revealMessageId;
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [revealMessageId, rows, width]);
   const loadNearTop = useCallback(
     (element: HTMLElement, resume = false) => {
       olderDemand.current = false;
@@ -513,8 +533,8 @@ function Timeline({
   const gesture = () => {
     restoredAnchor.current = undefined;
     intent.current++;
-    if (scroller.current) recordPosition(scroller.current);
     userScrolled.current = true;
+    if (scroller.current) recordPosition(scroller.current);
     // At a restored top edge, input cannot move the DOM and emits no scroll.
     if (scroller.current && scroller.current.scrollTop <= 0)
       loadNearTop(scroller.current);

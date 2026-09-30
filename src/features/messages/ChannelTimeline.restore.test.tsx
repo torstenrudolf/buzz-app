@@ -34,6 +34,7 @@ vi.mock("virtua", async () => {
   };
 });
 const frames = new Map<number, FrameRequestCallback>();
+const resizes = new Set<() => void>();
 let nextFrame = 0;
 const owners: { dispose(): void }[] = [];
 beforeEach(() => {
@@ -50,8 +51,13 @@ beforeEach(() => {
   vi.stubGlobal(
     "ResizeObserver",
     class {
-      observe() {}
-      disconnect() {}
+      constructor(private callback: () => void) {}
+      observe() {
+        resizes.add(this.callback);
+      }
+      disconnect() {
+        resizes.delete(this.callback);
+      }
     },
   );
 });
@@ -71,7 +77,7 @@ async function frame() {
     }
   });
 }
-function mount(bottom = false) {
+function mount(bottom = false, revealOnMount = false) {
   const viewer = keypair(),
     relay = keypair();
   const target = message(viewer, "c", "Saved reading anchor", 1);
@@ -118,17 +124,26 @@ function mount(bottom = false) {
       />
     </StrictMode>
   );
-  const result = render(tree(window));
+  const first = window.rows[0];
+  if (!first) throw new Error("Missing fixture row");
+  const sent = { ...first, id: "sent", content: "New message" };
+  const sentWindow = { ...window, rows: [...window.rows, sent] };
+  const result = render(
+    revealOnMount ? tree(sentWindow, sent.id) : tree(window),
+  );
   return {
     saved: { offset: 900, bottom, anchor: { id: target.id, y: 42 } },
     unmount: result.unmount,
     reveal() {
-      const first = window.rows[0];
-      if (!first) throw new Error("Missing fixture row");
-      const sent = { ...first, id: "sent", content: "New message" };
+      result.rerender(tree(sentWindow, sent.id));
+    },
+    refreshSent() {
       result.rerender(
-        tree({ ...window, rows: [...window.rows, sent] }, sent.id),
+        tree({ ...sentWindow, rows: [...sentWindow.rows] }, sent.id),
       );
+    },
+    awaitReveal() {
+      result.rerender(tree(window, sent.id));
     },
     replaceAnchor() {
       const first = window.rows[0];
@@ -192,9 +207,109 @@ it.each([false, true])(
     await h.measured();
     await frame();
     expect(scroll.toIndex).toHaveBeenLastCalledWith(1, { align: "end" });
-    expect(scroll.toIndex.mock.calls.length).toBe(calls + (bottom ? 1 : 0));
+    expect(scroll.toIndex.mock.calls.length).toBe(calls + 1);
   },
 );
+
+it.each(["none", "wheel", "key"])(
+  "a reveal on mount follows late measurements unless reader input=%s",
+  async (input) => {
+    const h = mount(false, true);
+    await frame();
+    expect(scroll.toIndex).toHaveBeenLastCalledWith(1, { align: "end" });
+    scroll.toIndex.mockClear();
+    const feed = screen.getByRole("region", {
+      name: "Channel message history",
+    });
+    if (input === "wheel") fireEvent.wheel(feed);
+    if (input === "key") fireEvent.keyDown(feed, { key: "PageUp" });
+    await h.measured();
+    await frame();
+    if (input === "none") {
+      expect(scroll.toIndex).toHaveBeenLastCalledWith(1, { align: "end" });
+      h.unmount();
+      expect(readView("scope", "scroll:c", null)).toMatchObject({
+        bottom: true,
+      });
+    } else expect(scroll.toIndex).not.toHaveBeenCalled();
+  },
+);
+
+it.each(["wheel", "key"])(
+  "reader input before the reveal frame stays authoritative after a row refresh: %s",
+  async (input) => {
+    const h = mount();
+    await frame();
+    scroll.toIndex.mockClear();
+    h.reveal();
+    const feed = screen.getByRole("region", {
+      name: "Channel message history",
+    });
+    if (input === "wheel") fireEvent.wheel(feed);
+    else fireEvent.keyDown(feed, { key: "PageUp" });
+    await frame();
+    expect(scroll.toIndex).not.toHaveBeenCalled();
+    // A later echo/edit replaces rows; it must not revive the canceled reveal.
+    h.refreshSent();
+    await frame();
+    expect(scroll.toIndex).not.toHaveBeenCalled();
+  },
+);
+
+it("waits for a sent row to arrive without restoring over its reveal", async () => {
+  const h = mount();
+  await frame();
+  h.awaitReveal();
+  await frame();
+  expect(scroll.toIndex).not.toHaveBeenCalledWith(1, { align: "end" });
+  h.reveal();
+  await frame();
+  expect(scroll.toIndex).toHaveBeenLastCalledWith(1, { align: "end" });
+  scroll.toIndex.mockClear();
+  h.reveal();
+  await frame();
+  expect(scroll.toIndex).not.toHaveBeenCalled();
+});
+
+it.each([false, true])(
+  "the first intermediate bottom-follow scroll retains intent unless reader input=%s",
+  async (readerInput) => {
+    const h = mount(true);
+    await frame();
+    const feed = screen.getByRole("region", {
+      name: "Channel message history",
+    });
+    // Virtua can deliver an intermediate offset before measuring its final range.
+    feed.scrollTop = 162;
+    if (readerInput) fireEvent.wheel(feed);
+    fireEvent.scroll(feed);
+    scroll.toIndex.mockClear();
+    await h.measured();
+    await frame();
+    if (readerInput) expect(scroll.toIndex).not.toHaveBeenCalled();
+    else expect(scroll.toIndex).toHaveBeenLastCalledWith(0, { align: "end" });
+  },
+);
+
+it("a resize before the local reveal scroll event cannot revive the prior reading anchor", async () => {
+  const h = mount();
+  await frame();
+  h.reveal();
+  await frame();
+  expect(scroll.toIndex).toHaveBeenLastCalledWith(1, { align: "end" });
+  scroll.toIndex.mockClear();
+  // Composer/sidebar layout may resize before the browser delivers scroll.
+  await act(async () => {
+    vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(500);
+    for (const resize of resizes) resize();
+  });
+  await frame();
+  expect(scroll.toIndex).toHaveBeenLastCalledWith(1, { align: "end" });
+  expect(scroll.toIndex).not.toHaveBeenCalledWith(0, {
+    align: "start",
+    offset: -42,
+  });
+});
 
 it.each([false, true])(
   "a scroll before any visible virtual row mounts retains restoration unless reader input=%s",
@@ -259,13 +374,9 @@ it.each([false, true])(
   },
 );
 
-it.each(
-  ["converged", "removed", "pending"].flatMap((boundary) =>
-    [false, true].map((readerInput) => ({ boundary, readerInput })),
-  ),
-)(
-  "restoration $boundary enters bottom follow only after reader input=$readerInput",
-  async ({ boundary, readerInput }) => {
+it.each(["converged", "gesture", "removed"])(
+  "allows bottom follow after restoration is superseded: %s",
+  async (boundary) => {
     const h = mount();
     await frame();
     const feed = screen.getByRole("region", {
@@ -279,19 +390,18 @@ it.each(
     if (boundary === "converged") {
       feed.scrollTop = 900;
       fireEvent.scroll(feed);
-    } else if (boundary === "removed") {
+    } else if (boundary === "gesture") {
+      fireEvent.pointerDown(feed);
+    } else {
       h.replaceAnchor();
       await frame();
     }
-    // Layout convergence or anchor removal is not new reader intent. A real
-    // gesture retires restoration and allows the next bottom scroll to follow.
-    if (readerInput) fireEvent.pointerDown(feed);
     feed.scrollTop = 1400;
     fireEvent.scroll(feed);
     h.unmount();
     expect(
       readView<{ bottom: boolean }>("scope", "scroll:c", { bottom: false })
         .bottom,
-    ).toBe(readerInput);
+    ).toBe(true);
   },
 );

@@ -96,18 +96,16 @@ export function MessageActionBar({
             }}
           />
         )}
-        <span>
-          <IconButton
-            aria-label="Copy link"
-            title={link ? "Copy link" : "Message link unavailable"}
-            size="sm"
-            disabled={!link || copying}
-            icon={<LinkIcon />}
-            onClick={() => {
-              if (link) void copy(() => link, "Link");
-            }}
-          />
-        </span>
+        <IconButton
+          aria-label="Copy link"
+          title={link ? "Copy link" : "Message link unavailable"}
+          size="sm"
+          disabled={!link || copying}
+          icon={<LinkIcon />}
+          onClick={() => {
+            if (link) void copy(() => link, "Link");
+          }}
+        />
         <MenuRoot
           open={open}
           onOpenChange={(next) => {
