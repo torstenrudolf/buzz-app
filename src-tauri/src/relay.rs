@@ -393,7 +393,7 @@ async fn send(
         .send()
         .await
         .map_err(|_| "Relay request could not be confirmed")?;
-    read_response(response, MAX_RESPONSE).await
+    read_response(response, response_limit).await
 }
 
 async fn read_response(mut response: reqwest::Response, limit: usize) -> Result<RelayResponse> {
@@ -410,7 +410,7 @@ async fn read_response(mut response: reqwest::Response, limit: usize) -> Result<
         .await
         .map_err(|_| "Relay response was interrupted")?
     {
-        if bytes.len() + chunk.len() > response_limit {
+        if bytes.len() + chunk.len() > limit {
             return Err("Relay response is too large".into());
         }
         bytes.extend_from_slice(&chunk);
