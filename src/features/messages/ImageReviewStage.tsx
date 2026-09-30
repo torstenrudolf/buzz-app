@@ -13,7 +13,11 @@ import {
   PlusIcon,
 } from "../../shared/design-system/icons/index";
 import type { Attachment } from "../relay/contracts";
-import { isProxySource, safeOpenUrl } from "./attachment-source";
+import {
+  isNativeMediaSource,
+  isProxySource,
+  safeOpenUrl,
+} from "./attachment-source";
 import styles from "./Messages.module.css";
 
 const MIN_ZOOM = 1;
@@ -51,7 +55,9 @@ export function ImageReviewStage({
   );
   const selected = attachments[selectedIndex] ?? attachments[0];
   const source = selected ? media(selected.url) : undefined;
-  const proxySource = source ? isProxySource(source) : false;
+  const proxySource = source
+    ? isProxySource(source) || isNativeMediaSource(source)
+    : false;
   const externalSource = source ? safeOpenUrl(source) && !proxySource : false;
   const {
     zoom,

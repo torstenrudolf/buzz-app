@@ -628,6 +628,39 @@ fn media_proxy_only_reaches_relay_blobs() {
 }
 
 #[test]
+fn main_webview_downloads_only_authenticated_media_urls() {
+    let hash = "a".repeat(64);
+    let target = format!("https://relay.test/media/{hash}.pdf");
+    let encoded: String =
+        percent_encoding::utf8_percent_encode(&target, percent_encoding::NON_ALPHANUMERIC)
+            .to_string();
+    for url in [
+        format!("buzz-media://localhost/{encoded}"),
+        format!("http://buzz-media.localhost/{encoded}"),
+    ] {
+        assert!(is_media_download_url(&Url::parse(&url).unwrap()), "{url}");
+    }
+    for url in [
+        format!("buzz-media://evil.test/{encoded}"),
+        format!("http://buzz-media.localhost.evil.test/{encoded}"),
+        format!("https://buzz-media.localhost/{encoded}"),
+        format!("buzz-media://localhost:123/{encoded}"),
+        format!("buzz-media://localhost/{encoded}?q=1"),
+        format!("buzz-media://localhost/{encoded}#fragment"),
+        format!("buzz-media://u:p@localhost/{encoded}"),
+        format!(
+            "buzz-media://localhost/{}",
+            percent_encoding::utf8_percent_encode(
+                "https://relay.test/query",
+                percent_encoding::NON_ALPHANUMERIC
+            )
+        ),
+    ] {
+        assert!(!is_media_download_url(&Url::parse(&url).unwrap()), "{url}");
+    }
+}
+
+#[test]
 fn media_ranges_are_single_and_bounded() {
     assert_eq!(media_range("bytes=0-").as_deref(), Some("bytes=0-4194303"));
     assert_eq!(media_range("bytes=10-20").as_deref(), Some("bytes=10-20"));

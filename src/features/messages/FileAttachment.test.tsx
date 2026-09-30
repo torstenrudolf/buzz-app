@@ -145,3 +145,42 @@ it.each(["application/octet-stream", "application/vnd.ms-excel"])(
     expect(screen.getByText("File")).toBeInTheDocument();
   },
 );
+
+const nativeSource = `buzz-media://localhost/${encodeURIComponent(`https://relay.test/media/${"a".repeat(64)}.pdf`)}`;
+
+it("downloads authenticated native documents instead of opening them externally", () => {
+  const open = vi.fn(() => false);
+  render(
+    <FileAttachment
+      attachment={{
+        url: "https://relay.test/media/file",
+        kind: "file",
+        name: "report.pdf",
+      }}
+      source={nativeSource}
+      onOpenLink={open}
+    />,
+  );
+  const link = screen.getByRole("link", { name: "Download report.pdf" });
+  expect(link).toHaveAttribute("href", nativeSource);
+  expect(link).toHaveAttribute("download", "report.pdf");
+  expect(link).not.toHaveAttribute("target");
+  expect(screen.getByText("Download file")).toBeInTheDocument();
+  fireEvent.click(link);
+  expect(open).not.toHaveBeenCalled();
+});
+
+it.each([
+  `buzz-media://evil.test/${encodeURIComponent(`https://relay.test/media/${"a".repeat(64)}`)}`,
+  `buzz-media://localhost/${encodeURIComponent("https://relay.test/query")}`,
+])("does not offer a download for native lookalike %s", (source) => {
+  render(
+    <FileAttachment
+      attachment={{ url: "https://relay.test/file", kind: "file" }}
+      source={source}
+      onOpenLink={() => false}
+    />,
+  );
+  expect(screen.getByRole("status")).toHaveTextContent("File unavailable");
+  expect(screen.queryByRole("link")).toBeNull();
+});

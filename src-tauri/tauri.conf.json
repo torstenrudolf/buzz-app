@@ -13,6 +13,7 @@
     "windows": [
       {
         "title": "Buzz Foundation",
+        "create": false,
         "dragDropEnabled": false,
         "width": 1200,
         "height": 800,

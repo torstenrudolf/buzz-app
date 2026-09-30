@@ -766,6 +766,30 @@ pub(crate) fn media_protocol<R: tauri::Runtime>(
     });
 }
 
+/// Only allow main-webview downloads that resolve to authenticated relay media.
+/// Wry chooses a collision-free path in Downloads; never use a page-provided path.
+pub(crate) fn is_media_download_url(url: &Url) -> bool {
+    let host_ok = match url.scheme() {
+        "buzz-media" => url.host_str() == Some("localhost"),
+        // WKWebView maps custom schemes to this localhost origin on some platforms.
+        "http" => url.host_str() == Some("buzz-media.localhost"),
+        _ => false,
+    };
+    host_ok
+        && url.port().is_none()
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.query().is_none()
+        && url.fragment().is_none()
+        && !url.path().is_empty()
+        && url.path().starts_with('/')
+        && percent_encoding::percent_decode_str(&url.path()[1..])
+            .decode_utf8()
+            .ok()
+            .and_then(|target| media_url(&target))
+            .is_some()
+}
+
 /// `buzz-media://localhost/<percent-encoded relay media URL>`, the shape of
 /// `convertFileSrc(url, "buzz-media")` on every desktop platform.
 fn media_request(

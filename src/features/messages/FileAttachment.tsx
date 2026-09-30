@@ -3,7 +3,11 @@ import {
   FileTextIcon,
 } from "../../shared/design-system/icons/index";
 import type { Attachment } from "../relay/contracts";
-import { isProxySource, safeOpenUrl } from "./attachment-source";
+import {
+  isNativeMediaSource,
+  isProxySource,
+  safeOpenUrl,
+} from "./attachment-source";
 import styles from "./Messages.module.css";
 
 export function formatFileSize(size: number): string {
@@ -33,7 +37,9 @@ export function FileAttachment({
   onOpenLink(url: string): boolean;
 }) {
   const displayName = attachment.name ?? mimeLabel(attachment.mime) ?? "File";
-  const proxySource = source ? isProxySource(source) : false;
+  const proxySource = source
+    ? isProxySource(source) || isNativeMediaSource(source)
+    : false;
   const externalSource = !!source && safeOpenUrl(source) && !proxySource;
   if (source && !proxySource && !externalSource)
     return <UnavailableFileAttachment displayName={displayName} />;

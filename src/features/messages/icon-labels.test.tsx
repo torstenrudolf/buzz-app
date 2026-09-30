@@ -142,3 +142,42 @@ it("does not render stray file attachments as images", () => {
   );
   expect(container.querySelector("img")).toBeNull();
 });
+
+it.each(["buzz-media://localhost", "http://buzz-media.localhost"])(
+  "offers native image download on %s",
+  (origin) => {
+    const url = `https://relay.test/media/${"a".repeat(64)}.png`;
+    const source = `${origin}/${encodeURIComponent(url)}`;
+    render(
+      <ImageReviewStage
+        attachments={[{ url, kind: "image" }]}
+        selectedUrl={url}
+        media={() => source}
+        select={() => {}}
+        onOpenLink={() => false}
+      />,
+    );
+    const link = screen.getByRole("link", { name: "Download image" });
+    expect(link).toHaveAttribute("href", source);
+    expect(link).toHaveAttribute("download", "");
+    expect(
+      screen.queryByRole("link", { name: "Open image in browser" }),
+    ).toBeNull();
+  },
+);
+
+it("does not offer an image download for a native lookalike", () => {
+  const url = "https://relay.test/image.png";
+  render(
+    <ImageReviewStage
+      attachments={[{ url, kind: "image" }]}
+      selectedUrl={url}
+      media={() =>
+        `buzz-media://evil.test/${encodeURIComponent(`https://relay.test/media/${"a".repeat(64)}.png`)}`
+      }
+      select={() => {}}
+      onOpenLink={() => false}
+    />,
+  );
+  expect(screen.queryByRole("link", { name: "Download image" })).toBeNull();
+});

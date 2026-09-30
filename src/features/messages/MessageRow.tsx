@@ -27,7 +27,7 @@ import type { ChannelMessage, Profile } from "../relay/contracts";
 import { AttachmentImage } from "./AttachmentImage";
 import { DeliveryNotice } from "./DeliveryNotice";
 import { AudioAttachment } from "./AudioAttachment";
-import { isProxySource } from "./attachment-source";
+import { isNativeMediaSource, isProxySource } from "./attachment-source";
 import { FileAttachment } from "./FileAttachment";
 import { useReferenceDirectory } from "./ReferenceText";
 import { MessageMarkdown } from "./MessageMarkdown";
@@ -461,7 +461,10 @@ export const MessageRow = memo(function MessageRow({
                   />
                 );
               if (attachment.kind === "audio") {
-                if (source && isProxySource(source))
+                if (
+                  source &&
+                  (isProxySource(source) || isNativeMediaSource(source))
+                )
                   return (
                     <AudioAttachment
                       key={url}

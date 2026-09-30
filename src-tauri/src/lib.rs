@@ -456,6 +456,21 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
+            // Build the configured main view here so its download policy is installed
+            // before the first navigation. The embedded Buzz Browser remains separate.
+            for config in &app.config().app.windows {
+                if config.label == "main" {
+                    tauri::WebviewWindowBuilder::from_config(app, config)?
+                        .on_download(|_, event| match event {
+                            tauri::webview::DownloadEvent::Requested { url, .. } => {
+                                relay::is_media_download_url(&url)
+                            }
+                            tauri::webview::DownloadEvent::Finished { .. } => true,
+                            _ => false,
+                        })
+                        .build()?;
+                }
+            }
             deep_links::setup(app.handle());
             // Only app-owned storage is created. Preview uses the OS-resolved legacy
             // parent, never a browser-supplied path or a different environment source.
