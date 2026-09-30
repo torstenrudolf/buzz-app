@@ -640,3 +640,194 @@ it("holds the shared admission lease until a cancelled native history request se
   await expect(query).resolves.toEqual([]);
   expect(requests.at(-1)?.path).toBe("/query");
 });
+
+it("discards a pending observer decode after disconnect and reconnect", async () => {
+  const sockets: Socket[] = [];
+  class Socket {
+    readyState = 1;
+    onmessage?: (event: { data: string }) => Promise<void>;
+    onclose?: () => void;
+    sent: unknown[][] = [];
+    constructor() {
+      sockets.push(this);
+    }
+    send(raw: string) {
+      this.sent.push(JSON.parse(raw));
+    }
+    close() {
+      this.readyState = 3;
+      this.onclose?.();
+    }
+    async receive(value: unknown) {
+      await this.onmessage?.({ data: JSON.stringify(value) });
+    }
+  }
+  vi.stubGlobal("WebSocket", Socket);
+  const decoded = deferred<unknown>();
+  const dispatch = vi.mocked(invoke);
+  const original = dispatch.getMockImplementation();
+  let observerCalls = 0;
+  dispatch.mockImplementation(async (command, args) => {
+    if (command === "relay_agent_observer") {
+      if (++observerCalls === 1) return decoded.promise;
+      const event = (args as { event: VerifiedEvent }).event;
+      return {
+        id: event.id,
+        agent: event.pubkey,
+        createdAt: event.created_at,
+        plaintext: "{}",
+      };
+    }
+    return original?.(command, args);
+  });
+  const transport = await connectNativeTransport(community);
+  const observer = vi.fn();
+  const traffic = transport.subscribe?.({
+    receive: vi.fn(),
+    state: vi.fn(),
+    established: vi.fn(),
+    denied: vi.fn(),
+    observer,
+  });
+  assert.exists(traffic);
+  try {
+    const authenticate = async (socket: Socket) => {
+      await socket.receive(["AUTH", "nonce"]);
+      const proof = socket.sent.find(
+        ([kind]) => kind === "AUTH",
+      )?.[1] as VerifiedEvent;
+      await socket.receive(["OK", proof.id, true]);
+    };
+    traffic.observe?.(1);
+    const old = sockets[0];
+    assert.exists(old);
+    await authenticate(old);
+    const route = old.sent.find(
+      ([kind, , filter]) =>
+        kind === "REQ" &&
+        (filter as { kinds?: number[] }).kinds?.includes(24200),
+    );
+    assert.exists(route);
+    await old.receive(["EOSE", route[1]]);
+    const frame = signed(keypair(), {
+      kind: 24200,
+      created_at: 1700000010,
+      tags: [["p", viewer.pubkey]],
+      content: "cipher",
+    });
+    await old.receive(["EVENT", route[1], frame]);
+    expect(
+      dispatch.mock.calls.some(
+        ([command]) => command === "relay_agent_observer",
+      ),
+    ).toBe(true);
+    old.onclose?.();
+    vi.useRealTimers();
+    await vi.waitFor(() => expect(sockets.length).toBe(2));
+    const current = sockets[1];
+    assert.exists(current);
+    await authenticate(current);
+    const nextRoute = current.sent.find(
+      ([kind, , filter]) =>
+        kind === "REQ" &&
+        (filter as { kinds?: number[] }).kinds?.includes(24200),
+    );
+    assert.exists(nextRoute);
+    await current.receive(["EOSE", nextRoute[1]]);
+    decoded.resolve({
+      id: frame.id,
+      agent: frame.pubkey,
+      createdAt: frame.created_at,
+      plaintext: "{}",
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(observer).not.toHaveBeenCalled();
+    const fresh = signed(keypair(), {
+      kind: 24200,
+      created_at: Math.floor(Date.now() / 1000),
+      tags: [["p", viewer.pubkey]],
+      content: "cipher",
+    });
+    await current.receive(["EVENT", nextRoute[1], fresh]);
+    await vi.waitFor(() => expect(observer).toHaveBeenCalledTimes(1));
+    expect(observer.mock.calls[0]?.[0].id).toBe(fresh.id);
+  } finally {
+    traffic.dispose();
+  }
+});
+
+it("sorts host memory projections with the same locale collation as the broker", async () => {
+  const transport = await connectNativeTransport(community);
+  const agent = keypair();
+  const entries = ["mem/b", "mem/b_c", "mem/b-c", "mem/b/c", "mem/bc"]
+    .reverse()
+    .map((slug, i) => ({
+      slug,
+      body: slug,
+      eventId: i.toString(16).padStart(64, "0"),
+      createdAt: 1,
+    }));
+  vi.mocked(invoke).mockResolvedValueOnce({ entries, partial: false });
+  expect(
+    (
+      await transport.readAgentMemories?.(
+        agent.pubkey,
+        new AbortController().signal,
+      )
+    )?.entries.map((entry) => entry.slug),
+  ).toEqual(["mem/b", "mem/b_c", "mem/b-c", "mem/b/c", "mem/bc"]);
+});
+
+it("exposes purpose-bound agent readers and fences obsolete observer decoding", async () => {
+  const transport = await connectNativeTransport(community);
+  expect(transport.agentActivity).toBe(true);
+  const signal = new AbortController().signal;
+  const agent = keypair();
+  const dispatch = vi.mocked(invoke);
+  dispatch.mockImplementationOnce(async (command) => {
+    expect(command).toBe("relay_agent_library");
+    return { definitions: [], identities: [] };
+  });
+  expect(await transport.readAgentLibrary?.(signal)).toEqual({
+    definitions: [],
+    identities: [],
+  });
+  dispatch.mockImplementationOnce(async (command, args) => {
+    expect(command).toBe("relay_agent_memories_read");
+    expect(args).toEqual({ community, agent: agent.pubkey });
+    return { entries: [], partial: true };
+  });
+  expect(await transport.readAgentMemories?.(agent.pubkey, signal)).toEqual({
+    entries: [],
+    partial: true,
+  });
+  await expect(
+    transport.readAgentMemories?.(viewer.pubkey, signal),
+  ).rejects.toThrow("Invalid memory target");
+  dispatch.mockImplementationOnce(async (command, args) => {
+    expect(command).toBe("relay_agent_log_proof");
+    expect(args).toEqual({
+      community,
+      target: {
+        id: "id",
+        pubkey: agent.pubkey,
+        relayUrl: "wss://packaged.test",
+        nonce: "nonce",
+      },
+    });
+    return "a".repeat(128);
+  });
+  expect(
+    await transport.authorizeAgentLog?.(
+      { id: "id", pubkey: agent.pubkey, relayUrl: "wss://packaged.test" },
+      "nonce",
+    ),
+  ).toBe("a".repeat(128));
+  await expect(
+    transport.authorizeAgentLog?.(
+      { id: "id", pubkey: agent.pubkey, relayUrl: "wss://other.test" },
+      "nonce",
+    ),
+  ).rejects.toThrow("Log authorization unavailable");
+});

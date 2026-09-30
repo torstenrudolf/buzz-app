@@ -5,19 +5,13 @@ import "@testing-library/jest-dom/vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { cleanup, render, screen, within } from "@testing-library/react";
-import {
-  agentSetupConfirmationAvailable,
-  communityRequest,
-} from "../../features/communities/api";
+import { communityRequest } from "../../features/communities/api";
 import { createAgentControl } from "../../features/agents/control";
 import { controlFixture } from "../../features/agents/control-testing";
 import { createRelaySession } from "../../features/relay/session";
 import { inventoryIdentities } from "./inventory-model";
 import { InventoryView } from "./InventoryView";
-import {
-  agentSetupUnavailableMessage,
-  LocalInventoryAction,
-} from "./LocalInventoryAction";
+import { LocalInventoryAction } from "./LocalInventoryAction";
 import { ManagedAgentActions } from "./ManagedAgentActions";
 
 // A packaged desktop connection: the real adapter selection, with no broker.
@@ -61,19 +55,28 @@ function incompleteImport() {
   return { f, control };
 }
 
-it("matches the packaged adapter, which cannot confirm agent setup", async () => {
-  expect(agentSetupConfirmationAvailable()).toBe(false);
-  await expect(
-    communityRequest(destination, "resolve-agent-community", {
-      pubkey: "ab".repeat(32),
+it("offers native owner confirmation without a broker", async () => {
+  const resolution = {
+    pubkey: "ab".repeat(32),
+    owner,
+    relayUrl: "wss://relay.example.test",
+    signature: "proof",
+  };
+  vi.mocked(invoke).mockResolvedValueOnce(resolution);
+  expect(
+    await communityRequest(destination, "resolve-agent-community", {
+      pubkey: resolution.pubkey,
       owner,
       confirmed: true,
     }),
-  ).rejects.toThrow("This operation is unavailable on the packaged connection");
-  expect(invoke).not.toHaveBeenCalled();
+  ).toEqual(resolution);
+  expect(invoke).toHaveBeenCalledWith("relay_agent_resolve", {
+    community: destination,
+    target: { pubkey: resolution.pubkey, owner, confirmed: true },
+  });
 });
 
-it("explains the missing confirmation instead of offering Use here in the dialog", async () => {
+it("offers Use here for an incomplete import in the dialog", async () => {
   const { f, control } = incompleteImport();
   await control.refresh();
   render(
@@ -87,13 +90,10 @@ it("explains the missing confirmation instead of offering Use here in the dialog
       onUsed={() => {}}
     />,
   );
-  expect(screen.getByRole("status")).toHaveTextContent(
-    agentSetupUnavailableMessage,
-  );
-  expect(screen.queryByRole("button", { name: "Use here" })).toBeNull();
+  expect(screen.getByRole("button", { name: "Use here" })).toBeEnabled();
 });
 
-it("does not offer Use here for an imported identity that needs setup", async () => {
+it("offers Use here for an imported identity that needs setup", async () => {
   const { f, control } = incompleteImport();
   await control.refresh();
   const onUseHere = vi.fn();
@@ -108,14 +108,10 @@ it("does not offer Use here for an imported identity that needs setup", async ()
       onUseHere={onUseHere}
     />,
   );
-  expect(screen.queryByRole("button", { name: "Use here" })).toBeNull();
-  expect(screen.getByText(agentSetupUnavailableMessage)).toBeVisible();
-  expect(
-    screen.queryByText(/Choose Use here to set up this identity/),
-  ).toBeNull();
+  expect(screen.getByRole("button", { name: "Use here" })).toBeEnabled();
 });
 
-it("disables the inventory card's Use here and says why", async () => {
+it("enables the inventory card's Use here", async () => {
   const { f, control } = incompleteImport();
   await control.refresh();
   const owned = createRelaySession({
@@ -145,7 +141,6 @@ it("disables the inventory card's Use here and says why", async () => {
   const card = await screen.findByRole("article", {
     name: "Agent Fixture agent",
   });
-  expect(within(card).getByRole("button", { name: "Use here" })).toBeDisabled();
-  expect(within(card).getByText(agentSetupUnavailableMessage)).toBeVisible();
+  expect(within(card).getByRole("button", { name: "Use here" })).toBeEnabled();
   expect(onUseHere).not.toHaveBeenCalled();
 });

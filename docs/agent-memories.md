@@ -1,9 +1,9 @@
 # Agent memories: owner-view read capability
 
-The development relay broker is the first supported adapter. It already holds
-an explicitly pinned viewer key, registered community origins and authenticated
-relay admission. The packaged/signer-only transport has no memory reader and
-reports unavailable; this is not native login or adapter parity.
+The development relay broker and packaged native identity host support owner-view
+reads. Both capture the viewer key and community origin, use authenticated relay
+admission, and return a purpose-bound listing without exposing keys or arbitrary
+plaintext decryption to the renderer.
 
 The caller supplies only an exact agent public key. The host captures the current
 relay and fixes the owner to the authenticated viewer, querying kind 30174 with
@@ -74,5 +74,5 @@ RTL tests exercise actual React StrictMode, the profile tab, pending work, scope
 switches, retry states and unmount. The existing Chromium/WebKit profile journey
 adds keyboard disclosure and narrow-width wrapping checks through actual plugin
 registration. No browser cases were added or removed; authority permutations remain
-in the cheaper protocol/session tests. Live relay memory, packaged/native transport
-and cross-platform acceptance remain unverified/unsupported as described above.
+in the cheaper protocol/session tests. Live relay memory, packaged/native acceptance and cross-platform acceptance
+remain unverified by these browser fixtures.

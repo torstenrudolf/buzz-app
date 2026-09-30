@@ -101,7 +101,9 @@ export function memoryListing(input: unknown): MemoryListing {
     return Object.freeze(copy);
   });
   return Object.freeze({
-    entries: Object.freeze(entries),
+    entries: Object.freeze(
+      entries.sort((a, b) => a.slug.localeCompare(b.slug)),
+    ),
     partial: value.partial,
   });
 }

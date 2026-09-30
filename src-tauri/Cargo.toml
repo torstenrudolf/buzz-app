@@ -19,10 +19,12 @@ wry = { version = "=0.55.1", default-features = false, features = ["os-webview"]
 buzzodz-plugins = { path = "../crates/plugin-manager" }
 buzz-agent-controller = { path = "../crates/agent-controller" }
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde_json = { version = "1", features = ["raw_value"] }
 buzz-agent = { git = "https://github.com/block/buzz.git", rev = "48884848f566d02c42ce07636636c4ad5f164c27" }
 tokio = { version = "1", features = ["sync", "time", "macros", "process", "io-util"] }
 sha2 = "0.10"
+hmac = "0.12"
+nostr = { version = "0.44", features = ["nip44"] }
 base64 = "0.22"
 reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
 url = "2"

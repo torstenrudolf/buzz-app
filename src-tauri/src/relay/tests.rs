@@ -52,7 +52,7 @@ fn websocket_auth_is_bound_to_the_captured_community() {
     assert!(validate_event("https://relay.test", &event).is_err());
 }
 
-fn fixture_server(response: &'static str) -> (Url, std::thread::JoinHandle<(String, String)>) {
+fn fixture_server(response: String) -> (Url, std::thread::JoinHandle<(String, String)>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let url = Url::parse(&format!("http://{}/query", listener.local_addr().unwrap())).unwrap();
     let task = std::thread::spawn(move || {
@@ -91,7 +91,7 @@ fn fixture_server(response: &'static str) -> (Url, std::thread::JoinHandle<(Stri
 #[tokio::test]
 async fn native_http_signs_exact_bytes_and_never_follows_redirects() {
     // HTTP is test-transport-only; the IPC boundary always requires HTTPS.
-    let (url, task) = fixture_server("HTTP/1.1 302 Found\r\nLocation: https://other.test/\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}");
+    let (url, task) = fixture_server("HTTP/1.1 302 Found\r\nLocation: https://other.test/\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}".into());
     let body = r#"[{"kinds":[0],"limit":5}]"#;
     let result = send(
         &IdentityHost::fixture(),
@@ -123,6 +123,27 @@ async fn native_http_signs_exact_bytes_and_never_follows_redirects() {
     verify(&event);
 }
 
+#[tokio::test]
+async fn memory_response_limit_rejects_before_generic_transport_budget() {
+    let response = format!(
+        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        2 * 1024 * 1024 + 1,
+        "x".repeat(2 * 1024 * 1024 + 1)
+    );
+    let (url, task) = fixture_server(response);
+    let result = send(
+        &IdentityHost::fixture(),
+        url,
+        "POST",
+        Some("[]".into()),
+        true,
+        2 * 1024 * 1024,
+    )
+    .await;
+    assert!(matches!(result, Err(ref message) if message == "Relay response is too large"));
+    task.join().unwrap();
+}
+
 fn verify(event: &serde_json::Value) {
     let serialized = serde_json::to_vec(&serde_json::json!([
         0,
@@ -144,7 +165,56 @@ fn verify(event: &serde_json::Value) {
 
 #[test]
 fn real_ipc_restores_identity_signs_and_rejects_invalid_requests() {
+    // The path resolver reads HOME at runtime. Isolate it in a child rather
+    // than changing process-global HOME under the parallel test runner.
+    let mut child = std::process::Command::new(std::env::current_exe().unwrap());
+    child.args([
+        "--exact",
+        "relay::tests::isolated_agent_ipc_probe",
+        "--nocapture",
+    ]);
+    #[cfg(unix)]
+    {
+        let home = tempfile::tempdir().unwrap();
+        #[cfg(target_os = "macos")]
+        let path = home
+            .path()
+            .join("Library/Application Support/xyz.block.buzz.app/agents/managed-agents.json");
+        #[cfg(target_os = "linux")]
+        let path = home
+            .path()
+            .join(".local/share/xyz.block.buzz.app/agents/managed-agents.json");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, "[]").unwrap();
+        child.env("HOME", home.path()).env_remove("XDG_DATA_HOME");
+        let output = child.env("BUZZ_AGENT_IPC_PROBE", "1").output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let output = child.env("BUZZ_AGENT_IPC_PROBE", "1").output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}
+
+#[test]
+fn isolated_agent_ipc_probe() {
+    if std::env::var("BUZZ_AGENT_IPC_PROBE").as_deref() != Ok("1") {
+        return;
+    }
     use tauri::test::{get_ipc_response, mock_builder, INVOKE_KEY};
+    #[cfg(unix)]
+    use tauri::Manager;
     let app = mock_builder()
         .manage(IdentityHost::fixture())
         .invoke_handler(crate::commands())
@@ -180,6 +250,56 @@ fn real_ipc_restores_identity_signs_and_rejects_invalid_requests() {
     .unwrap();
     assert_eq!(event["pubkey"], public);
     verify(&event);
+    let target = serde_json::json!({"owner": public, "pubkey": "02".repeat(32)});
+    let authorized = invoke(
+        "relay_agent_authorize",
+        serde_json::json!({
+            "community": "https://relay.test", "target": target
+        }),
+    )
+    .unwrap();
+    assert_eq!(authorized["auth"][0], "auth");
+    let resolved = invoke("relay_agent_resolve", serde_json::json!({
+        "community": "https://relay.test", "target": {"owner": public, "pubkey": "02".repeat(32), "confirmed": true}
+    })).unwrap();
+    assert_eq!(resolved["relayUrl"], "wss://relay.test");
+    #[cfg(unix)]
+    {
+        let library = invoke("relay_agent_library", serde_json::json!({})).unwrap();
+        assert_eq!(
+            library,
+            serde_json::json!({"definitions": [], "identities": []})
+        );
+        assert!(app
+            .path()
+            .data_dir()
+            .unwrap()
+            .starts_with(std::env::var("HOME").unwrap()));
+    }
+    // Library IPC success is exercised against an isolated HOME on Unix.
+    // Windows known-folder inventory is not isolated here; do not invoke its
+    // reader until a test-only fixture can control that path.
+    // Each must reach the command: a handler refusal is fine; an ACL refusal is not.
+    for (command, input) in [
+        (
+            "relay_agent_memories_read",
+            serde_json::json!({"community": "https://relay.test", "agent": public}),
+        ),
+        (
+            "relay_agent_observer",
+            serde_json::json!({"community": "https://relay.test", "event": {"id": "bad"}}),
+        ),
+        (
+            "relay_agent_log_proof",
+            serde_json::json!({"community": "https://relay.test", "target": {"id": "bad", "pubkey": public, "relayUrl": "wss://relay.test", "nonce": "bad"}}),
+        ),
+    ] {
+        let result = invoke(command, input);
+        assert!(
+            !format!("{result:?}").contains(&format!("{command} not allowed")),
+            "ACL blocked {command}"
+        );
+    }
     assert!(invoke("relay_http", serde_json::json!({
         "community": "https://relay.test", "path": "//other.test/query", "method": "POST", "body": "[]"
     })).is_err());

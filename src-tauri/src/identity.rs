@@ -247,6 +247,22 @@ impl IdentityHost {
         })))
     }
 
+    // Only host-owned purpose-bound operations may use this closure. Never expose the
+    // secret, or a general decrypt/sign command, to the webview.
+    pub(crate) async fn with_key<T: Send + 'static>(
+        &self,
+        action: impl FnOnce(&[u8; 32], &str) -> Result<T> + Send + 'static,
+    ) -> Result<T> {
+        with_identity(self.clone(), move |identity| {
+            identity.restore()?;
+            match &identity.state {
+                State::Ready(key) => action(&key.0, &key.viewer()?),
+                _ => Err("Set up your identity first".into()),
+            }
+        })
+        .await
+    }
+
     pub(crate) async fn sign(&self, event: EventTemplate) -> Result<serde_json::Value> {
         with_identity(self.clone(), move |identity| {
             identity.restore()?;

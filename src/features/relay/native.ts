@@ -1,9 +1,16 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { EventTemplate } from "nostr-tools";
-import { communityDestination } from "../communities/destination";
+import { communityDestination, relayOrigin } from "../communities/destination";
 import { eventDto } from "./events";
 import { workflowHost, workflowRunsPath } from "../workflows/http";
 import { WORKFLOW_KINDS } from "../workflows/protocol";
+import {
+  memoryAgent,
+  memoryListing,
+  type MemoryListing,
+} from "../agents/memory";
+import type { AgentLibrary } from "../agents/library";
+import { observerFrame } from "../agents/observer";
 import {
   connectSignedTransport,
   admittedSignedWorkflowRead,
@@ -151,6 +158,97 @@ export async function connectNativeTransport(
       signal.throwIfAborted();
       return response;
     }),
+    agentActivity: true,
+    subscribe(callbacks) {
+      let active = true;
+      let observerGeneration: number | null = null;
+      let observerEpoch = 0;
+      let listening = false;
+      const traffic = transport.subscribe?.({
+        ...callbacks,
+        state(snapshot) {
+          const route = snapshot.routes.find((item) => item.id === "observer");
+          const next =
+            snapshot.status === "connected" && route?.status === "live";
+          if (listening && !next) observerEpoch++;
+          listening = next;
+          callbacks.state(snapshot);
+        },
+        telemetry(event, generation) {
+          if (generation !== observerGeneration || !listening) return;
+          const epoch = observerEpoch;
+          void invoke("relay_agent_observer", { community: origin, event })
+            .then((value) => {
+              if (
+                active &&
+                listening &&
+                observerEpoch === epoch &&
+                observerGeneration === generation
+              )
+                callbacks.observer?.(observerFrame(value), generation);
+            })
+            .catch(() => {
+              /* Invalid encrypted telemetry is not chat traffic. */
+            });
+        },
+      });
+      if (!traffic) throw new Error("Native relay stream is unavailable");
+      return {
+        ...traffic,
+        observe(generation) {
+          observerEpoch++;
+          observerGeneration = generation;
+          traffic.observe?.(generation);
+        },
+        dispose() {
+          active = false;
+          observerEpoch++;
+          traffic.dispose();
+        },
+      };
+    },
+    async readAgentLibrary(signal) {
+      signal.throwIfAborted();
+      const result = await invoke<AgentLibrary>("relay_agent_library");
+      signal.throwIfAborted();
+      return result;
+    },
+    async readAgentMemories(
+      agent: string,
+      signal: AbortSignal,
+    ): Promise<MemoryListing> {
+      if (!memoryAgent(agent, transport.viewer))
+        throw new Error("Invalid memory target");
+      const bounded = AbortSignal.any([signal, AbortSignal.timeout(10000)]);
+      bounded.throwIfAborted();
+      let result: unknown;
+      try {
+        result = await invoke<unknown>("relay_agent_memories_read", {
+          community: origin,
+          agent,
+        });
+      } catch (reason) {
+        if (reason === "MemoryDenied") {
+          const denied = new Error("Memory read failed");
+          denied.name = "MemoryDenied";
+          throw denied;
+        }
+        throw reason;
+      }
+      bounded.throwIfAborted();
+      return memoryListing(result);
+    },
+    async authorizeAgentLog(target, nonce) {
+      if (relayOrigin(target.relayUrl) !== origin)
+        throw new Error("Log authorization unavailable");
+      const signature = await invoke<string>("relay_agent_log_proof", {
+        community: origin,
+        target: { ...target, nonce },
+      });
+      if (!/^[0-9a-f]{128}$/.test(signature))
+        throw new Error("Log authorization unavailable");
+      return signature;
+    },
     writer: {
       ...writer,
       kinds: nativeWriteKinds,

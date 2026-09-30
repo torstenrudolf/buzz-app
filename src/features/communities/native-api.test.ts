@@ -197,3 +197,44 @@ it("keeps development requests on the existing broker even inside Tauri", async 
   );
   expect(invoke).not.toHaveBeenCalled();
 });
+
+it("routes exact owner setup confirmation through native commands, not the broker", async () => {
+  const owner = key.pubkey;
+  const pubkey = "ab".repeat(32);
+  vi.mocked(invoke).mockImplementationOnce(async (command, args) => {
+    expect(command).toBe("relay_agent_authorize");
+    expect(args).toEqual({ community, target: { pubkey, owner } });
+    return { auth: ["auth", owner, "", "proof"] };
+  });
+  expect(
+    await communityRequest(community, "authorize-agent", { pubkey, owner }),
+  ).toEqual({ auth: ["auth", owner, "", "proof"] });
+  vi.mocked(invoke).mockImplementationOnce(async (command, args) => {
+    expect(command).toBe("relay_agent_resolve");
+    expect(args).toEqual({
+      community,
+      target: { pubkey, owner, confirmed: true },
+    });
+    return {
+      pubkey,
+      owner,
+      relayUrl: "wss://native-admission.test",
+      signature: "proof",
+    };
+  });
+  expect(
+    await communityRequest(community, "resolve-agent-community", {
+      pubkey,
+      owner,
+      confirmed: true,
+    }),
+  ).toMatchObject({ pubkey, owner });
+  await expect(
+    communityRequest(community, "resolve-agent-community", {
+      pubkey,
+      owner,
+      confirmed: false,
+    }),
+  ).rejects.toThrow("Explicit owner community resolution required");
+  expect(requests).toEqual([]);
+});

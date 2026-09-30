@@ -14,7 +14,7 @@ add-existing membership, Save/recovery and all runner management are out of V1.
 
 ### Implemented compatibility view
 
-- The live development broker (macOS and Linux) reads the installed Buzz library at
+- The live development broker (macOS and Linux) and packaged native host read the installed Buzz library at
   `~/Library/Application Support/xyz.block.buzz.app/agents/managed-agents.json`
   (on Linux, `$XDG_DATA_HOME/xyz.block.buzz.app/agents/managed-agents.json`,
   defaulting to `~/.local/share`).
@@ -426,8 +426,8 @@ Expand raw entries, close/reopen the panel, and toggle
 **Your profile → Settings → Plugins → Agent Activity** off/on. Re-enable starts
 empty. The feed is live-only, best-effort telemetry: the producer coalesces/batches
 and may elide oversized content. It is not a complete ACP transcript or archive.
-The development broker supports this slice; packaged/native signed transport
-without that broker reports unavailable. No runtime controller,
+The development broker and packaged native identity host support this slice;
+native decoding remains purpose-bound to the shared live stream. No runtime controller,
 recording export or old transcript renderer is included.
 
 ### Evidence and remaining acceptance
@@ -453,9 +453,8 @@ warm click-to-visible samples were 16.8–19.2ms in Chromium and 50–67ms in We
 with no new head read, below the unchanged 100ms budget. These are local Apple
 Silicon fixture measurements, not a live-network SLA.
 
-Packaged/native activity without the development broker remains unsupported;
-attended native/package acceptance and cross-platform CI are separate from these
-local results.
+Packaged/native activity uses the native observer decoder; attended native/package
+acceptance and cross-platform CI remain separate from these local results.
 
 ### Composer-entry feedback rounds
 
@@ -501,8 +500,8 @@ mounts real React in StrictMode rather than mocking hooks.
 
 These are targeted integration checks, not a completed `just scan`. The earlier
 scan was interrupted during browser tests; broader hosted CI, DCO and required
-review remain separate gates. Packaged native activity without the development
-broker remains unsupported.
+review remain separate gates. Packaged native activity now uses purpose-bound
+observer decoding; attended packaged and live-relay acceptance remain outstanding.
 
 ### Shared identity names
 

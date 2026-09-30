@@ -4,14 +4,8 @@ import type {
   AgentView,
   CommunityResolution,
 } from "../../features/agents/control";
-import {
-  agentSetupConfirmationAvailable,
-  communityRequest,
-} from "../../features/communities/api";
+import { communityRequest } from "../../features/communities/api";
 import { Button } from "../../shared/design-system/ui/Button";
-
-export const agentSetupUnavailableMessage =
-  "This app version cannot finish setting up imported agents yet.";
 
 /** Uses retained app custody, never a legacy preview or credential import. */
 export function LocalInventoryAction({
@@ -41,8 +35,6 @@ export function LocalInventoryAction({
   }, [onPending]);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  if (!agentSetupConfirmationAvailable())
-    return <p role="status">{agentSetupUnavailableMessage}</p>;
   return (
     <>
       <p>

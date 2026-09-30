@@ -13,12 +13,6 @@ export type CommunityInfo = {
     age_attestation_required: boolean;
   } | null;
 };
-/**
- * Use here needs the destination to confirm the agent with its owner's key.
- * Only the development broker serves that confirmation; the packaged adapter
- * rejects it, so callers must not offer the action there.
- */
-export const agentSetupConfirmationAvailable = () => !nativeIdentityEnabled();
 export async function communityRequest<T>(
   id: string,
   route: string,
