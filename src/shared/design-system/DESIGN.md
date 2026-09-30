@@ -169,6 +169,17 @@ using the floating fill opt into the same utility. Transparent groups inherit;
 a nested opaque Panel resets. Feature-only surfaces must opt into the recipe
 matching their paint; an arbitrary background utility alone is not a context.
 
+Inherited custom-property aliases resolve on the owner, not again on each child.
+Do not override upstream `--affordance-*` values on a wrapper to retint controls.
+The existing semantic exceptions have named shared recipes: `interaction-availability`
+on the status owner uses `data-status="online" | "away" | "offline"` (unknown stays
+neutral) for the documented status capsule fills, while `interaction-navigation`
+on the sidebar keeps channel rows and session selection equally quiet. Apply these
+only to their semantic owners, not as general styling escape hatches. Button and
+NavigationItem still do not accept caller-supplied `className`; popup portals keep
+their own floating recipe. Availability's existing contrast exceptions remain
+recorded in `docs/presence.md`.
+
 Actions consume contextual fill/hover/pressed/selected/boundary roles rather than
 redefining global semantic tokens that also color avatars or chips. Floating
 rows remain transparent at rest, then use the existing floating highlight with

@@ -32,7 +32,7 @@
   background: var(--affordance-panel-hover);
 }
 .row[data-selected]::before {
-  background: var(--affordance-selected);
+  background: var(--interaction-selected);
 }
 .row .select [data-buzz-ui][data-variant="row"] {
   background: transparent;

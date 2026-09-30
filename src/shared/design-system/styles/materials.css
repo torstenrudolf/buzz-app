@@ -168,3 +168,41 @@
     @apply interaction-panel;
   }
 }
+
+/* Named semantic exceptions resolve on their owner, not the floating ancestor.
+   Do not retint global affordances to style an arbitrary descendant control. */
+@utility interaction-availability {
+  --text-caption--font-weight: var(--type-weight-medium);
+  --availability-color: var(--text-subtle);
+  --availability-surface: var(--surface-inset);
+  --text-standard: var(--availability-color);
+  --interaction-fill: color-mix(
+    in srgb,
+    var(--availability-color) 12%,
+    var(--availability-surface)
+  );
+  --interaction-hover: color-mix(
+    in srgb,
+    var(--availability-color) 18%,
+    var(--availability-surface)
+  );
+  --interaction-pressed: color-mix(
+    in srgb,
+    var(--availability-color) 24%,
+    var(--availability-surface)
+  );
+  &[data-status="online"] {
+    --availability-color: var(--status-availability-online);
+  }
+  &[data-status="away"] {
+    --availability-color: var(--status-away);
+    --availability-surface: transparent;
+    --text-standard: var(--text-warning);
+  }
+}
+
+/* Sidebar destinations and their session children share a quiet selection.
+   Keep the composite channel-row paint and shared NavigationItem in agreement. */
+@utility interaction-navigation {
+  --interaction-selected: var(--affordance-subtle);
+}

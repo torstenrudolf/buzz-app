@@ -37,7 +37,7 @@
   --type-weight-semibold: 600;
   --size-row: var(--space-6);
   --radius-row: 10px;
-  --affordance-selected: var(--affordance-subtle);
+  @apply interaction-navigation;
   --affordance-panel-hover: var(--affordance-navigation-quiet);
   --sidebar-padding: var(--space-2);
   --sidebar-padding-end: var(--sidebar-padding);

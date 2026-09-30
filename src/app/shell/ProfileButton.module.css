@@ -1,3 +1,5 @@
+@reference "../../shared/styles/globals.css";
+
 .profileHeader {
   display: flex;
   align-items: center;
@@ -22,33 +24,7 @@
   max-width: 100%;
 }
 .availability {
-  --text-caption--font-weight: var(--type-weight-medium);
-  --availability-color: var(--text-subtle);
-  --availability-surface: var(--surface-inset);
-  --text-standard: var(--availability-color);
-  --affordance-subtle: color-mix(
-    in srgb,
-    var(--availability-color) 12%,
-    var(--availability-surface)
-  );
-  --affordance-subtle-hover: color-mix(
-    in srgb,
-    var(--availability-color) 18%,
-    var(--availability-surface)
-  );
-  --affordance-subtle-pressed: color-mix(
-    in srgb,
-    var(--availability-color) 24%,
-    var(--availability-surface)
-  );
-}
-.availability[data-status="online"] {
-  --availability-color: var(--status-availability-online);
-}
-.availability[data-status="away"] {
-  --availability-color: var(--status-away);
-  --availability-surface: transparent;
-  --text-standard: var(--text-warning);
+  @apply interaction-availability;
 }
 .statusCard {
   --user-status-emoji-offset: -2px;
