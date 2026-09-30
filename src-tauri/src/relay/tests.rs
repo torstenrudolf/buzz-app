@@ -75,7 +75,6 @@ fn fixture_server(response: &'static str) -> (Url, std::thread::JoinHandle<(Stri
                             .strip_prefix("content-length: ")
                             .map(str::to_owned)
                     })
-
                     .map(|value| value.parse().unwrap())
                     .unwrap_or(0);
                 if body.len() == length {
@@ -245,7 +244,6 @@ async fn signing_is_verifiable_and_does_not_export_a_key() {
         .await
         .is_err());
 }
-
 
 #[test]
 fn workflow_history_is_fixed_and_cannot_retarget_native_http() {
@@ -663,7 +661,31 @@ fn native_downloads_only_accept_authenticated_media_urls() {
 #[test]
 fn download_names_are_safe_and_collisions_do_not_overwrite() {
     let url = Url::parse(&format!("https://relay.test/media/{}.pdf", "a".repeat(64))).unwrap();
-    for invalid in ["", ".", "..", "../secret", "a/b", "a\\b", "a:b", "a\n.txt"] {
+    for invalid in [
+        "",
+        ".",
+        "..",
+        "../secret",
+        "a/b",
+        "a\\b",
+        "a:b",
+        "a\n.txt",
+        "a?.pdf",
+        "a*.pdf",
+        "a\".pdf",
+        "a<.pdf",
+        "a>.pdf",
+        "a|.pdf",
+        "CON",
+        "con.txt",
+        "NUL.pdf",
+        "COM1.txt",
+        "LPT9",
+        "report.",
+        "report ",
+        "invoice\u{202e}fdp.command",
+        "\u{2066}file\u{2069}.pdf",
+    ] {
         assert_eq!(
             download_name(invalid, &url),
             url.path().rsplit('/').next().unwrap()
@@ -681,6 +703,33 @@ fn download_names_are_safe_and_collisions_do_not_overwrite() {
     assert_eq!(second.file_name().unwrap(), "report (1).pdf");
     assert_eq!(std::fs::read(&first).unwrap(), b"first");
     assert_eq!(std::fs::read(&second).unwrap(), b"second");
+    #[cfg(target_os = "macos")]
+    {
+        use std::os::fd::AsRawFd;
+        let mut value = [0u8; 128];
+        let length = unsafe {
+            libc::fgetxattr(
+                std::fs::File::open(&first).unwrap().as_raw_fd(),
+                c"com.apple.quarantine".as_ptr(),
+                value.as_mut_ptr().cast(),
+                value.len(),
+                0,
+                0,
+            )
+        };
+        assert!(length > 0, "missing quarantine mark");
+        assert!(std::str::from_utf8(&value[..length as usize])
+            .unwrap()
+            .starts_with("0081;"));
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let stream = format!("{}:Zone.Identifier", first.display());
+        assert_eq!(
+            std::fs::read(stream).unwrap(),
+            b"[ZoneTransfer]\r\nZoneId=3\r\n"
+        );
+    }
     std::fs::remove_dir_all(dir).unwrap();
 }
 

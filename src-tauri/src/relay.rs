@@ -793,18 +793,89 @@ fn download_target(source: &str) -> Option<Url> {
 /// Never interpret untrusted attachment names as paths. A missing or invalid name
 /// falls back to the validated blob's basename.
 fn download_name<'a>(name: &'a str, url: &'a Url) -> &'a str {
+    let stem = name.split('.').next().unwrap_or("");
+    let reserved = stem.trim_end_matches(' ').to_ascii_uppercase();
     if !name.is_empty()
         && name.len() <= 255
         && name != "."
         && name != ".."
-        && !name
-            .chars()
-            .any(|c| c.is_control() || matches!(c, '/' | '\\' | ':'))
+        && !name.ends_with(['.', ' '])
+        && !matches!(reserved.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        && !matches!(
+            reserved.as_str(),
+            "COM1"
+                | "COM2"
+                | "COM3"
+                | "COM4"
+                | "COM5"
+                | "COM6"
+                | "COM7"
+                | "COM8"
+                | "COM9"
+                | "LPT1"
+                | "LPT2"
+                | "LPT3"
+                | "LPT4"
+                | "LPT5"
+                | "LPT6"
+                | "LPT7"
+                | "LPT8"
+                | "LPT9"
+        )
+        && !name.chars().any(|c| {
+            c.is_control()
+                || matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|'
+                    | '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}'
+                    | '\u{2066}'..='\u{2069}')
+        })
     {
         name
     } else {
         url.path().rsplit('/').next().unwrap_or("media")
     }
+}
+
+/// Fail closed if the OS cannot mark the file as untrusted internet content.
+#[cfg(target_os = "macos")]
+fn mark_download(file: &std::fs::File, _path: &std::path::Path) -> std::io::Result<()> {
+    use std::os::fd::AsRawFd;
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(std::io::Error::other)?
+        .as_secs();
+    let value = format!("0081;{timestamp:x};Buzz;");
+    let result = unsafe {
+        libc::fsetxattr(
+            file.as_raw_fd(),
+            c"com.apple.quarantine".as_ptr(),
+            value.as_ptr().cast(),
+            value.len(),
+            0,
+            0,
+        )
+    };
+    if result == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn mark_download(_file: &std::fs::File, path: &std::path::Path) -> std::io::Result<()> {
+    // Alternate data streams are attached to the same NTFS file, not a sibling.
+    use std::os::windows::ffi::OsStringExt;
+    let mut stream: Vec<u16> = path.as_os_str().encode_wide().collect();
+    stream.extend(":Zone.Identifier".encode_utf16());
+    std::fs::write(
+        std::path::PathBuf::from(std::ffi::OsString::from_wide(&stream)),
+        b"[ZoneTransfer]\r\nZoneId=3\r\n",
+    )
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn mark_download(_file: &std::fs::File, _path: &std::path::Path) -> std::io::Result<()> {
+    Ok(())
 }
 
 fn save_download(
@@ -832,7 +903,10 @@ fn save_download(
             .open(&path)
         {
             Ok(mut file) => {
-                if let Err(error) = file.write_all(body).and_then(|_| file.sync_all()) {
+                if let Err(error) = mark_download(&file, &path)
+                    .and_then(|_| file.write_all(body))
+                    .and_then(|_| file.sync_all())
+                {
                     drop(file);
                     let _ = std::fs::remove_file(&path);
                     return Err(format!("Could not save media: {error}"));

@@ -58,7 +58,7 @@ export function ImageReviewStage({
   const source = selected ? media(selected.url) : undefined;
   const nativeSource = source ? isNativeMediaSource(source) : false;
   const proxySource = source ? isProxySource(source) || nativeSource : false;
-  const [downloadError, setDownloadError] = useState(false);
+  const [downloadErrorSource, setDownloadErrorSource] = useState<string>();
   const externalSource = source ? safeOpenUrl(source) && !proxySource : false;
   const {
     zoom,
@@ -294,15 +294,17 @@ export function ImageReviewStage({
             aria-label="Download image"
             title="Download image"
             onClick={() => {
-              setDownloadError(false);
+              setDownloadErrorSource(undefined);
               void downloadNativeMedia(source).catch(() =>
-                setDownloadError(true),
+                setDownloadErrorSource(source),
               );
             }}
             icon={<DownloadIcon size={17} />}
           />
         )}
-        {downloadError && <span role="alert">Download failed</span>}
+        {downloadErrorSource === source && (
+          <span role="alert">Download failed</span>
+        )}
         {proxySource && !nativeSource && (
           <IconButton
             nativeButton={false}

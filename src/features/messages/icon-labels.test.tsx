@@ -211,3 +211,27 @@ it("reports native image download failures without navigating", async () => {
     expect(screen.getByRole("alert")).toHaveTextContent("Download failed"),
   );
 });
+
+it("clears image download errors when switching to another image", async () => {
+  const first = `https://relay.test/media/${"a".repeat(64)}.png`;
+  const second = `https://relay.test/media/${"b".repeat(64)}.png`;
+  vi.mocked(downloadNativeMedia).mockRejectedValueOnce(new Error("offline"));
+  const props = {
+    attachments: [
+      { url: first, kind: "image" as const },
+      { url: second, kind: "image" as const },
+    ],
+    media: (url: string) => `buzz-media://localhost/${encodeURIComponent(url)}`,
+    select: () => {},
+    onOpenLink: () => false,
+  };
+  const { rerender } = render(
+    <ImageReviewStage {...props} selectedUrl={first} />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Download image" }));
+  await waitFor(() =>
+    expect(screen.getByRole("alert")).toHaveTextContent("Download failed"),
+  );
+  rerender(<ImageReviewStage {...props} selectedUrl={second} />);
+  expect(screen.queryByRole("alert")).toBeNull();
+});
