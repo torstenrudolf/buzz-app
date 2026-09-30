@@ -9,6 +9,8 @@ import {
   safeOpenUrl,
 } from "./attachment-source";
 import styles from "./Messages.module.css";
+import { downloadNativeMedia } from "./native-download";
+import { useState } from "react";
 
 export function formatFileSize(size: number): string {
   if (size < 1024) return `${size} B`;
@@ -36,10 +38,10 @@ export function FileAttachment({
   source: string | undefined;
   onOpenLink(url: string): boolean;
 }) {
+  const [downloadError, setDownloadError] = useState(false);
   const displayName = attachment.name ?? mimeLabel(attachment.mime) ?? "File";
-  const proxySource = source
-    ? isProxySource(source) || isNativeMediaSource(source)
-    : false;
+  const nativeSource = source ? isNativeMediaSource(source) : false;
+  const proxySource = source ? isProxySource(source) || nativeSource : false;
   const externalSource = !!source && safeOpenUrl(source) && !proxySource;
   if (source && !proxySource && !externalSource)
     return <UnavailableFileAttachment displayName={displayName} />;
@@ -79,6 +81,26 @@ export function FileAttachment({
       >
         {content}
       </a>
+    );
+  if (nativeSource)
+    return (
+      <>
+        <button
+          type="button"
+          className={styles.fileAttachment}
+          aria-label={`Download ${displayName}`}
+          title={displayName}
+          onClick={() => {
+            setDownloadError(false);
+            void downloadNativeMedia(source, attachment.name ?? "").catch(() =>
+              setDownloadError(true),
+            );
+          }}
+        >
+          {content}
+        </button>
+        {downloadError && <span role="alert">Download failed</span>}
+      </>
     );
   return (
     <a

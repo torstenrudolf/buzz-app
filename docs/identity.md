@@ -102,7 +102,7 @@ which validates HTTPS and the `/media/<hash>` URL shape but does not enforce
 saved-community membership; the selected server receives a short-lived token
 scoped to its origin. The scheme signs a fresh 60-second `get` token per request
 and forwards only a bounded single `Range`; non-image/video/audio types (and SVG)
-are served as downloads with `nosniff`. `relay_upload`
+are served with download disposition and `nosniff`. The main webview does not navigate to protected media for downloads: a narrowly scoped native command authenticates the bounded media GET, saves to the OS Downloads directory without replacing existing files, and rejects unsafe filenames. `relay_upload`
 hashes, signs (`upload` + `x`) and sends the exact bytes JavaScript passes it;
 shared TypeScript (`hostUpload`) owns limits, error mapping and descriptor
 validation. JavaScript never signs kind 24242. HEIC and non-MP4 video conversion

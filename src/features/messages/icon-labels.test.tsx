@@ -1,9 +1,17 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { MediaAttachment } from "./MediaAttachment";
+import { downloadNativeMedia } from "./native-download";
 import { ImageReviewStage } from "./ImageReviewStage";
+vi.mock("./native-download", () => ({ downloadNativeMedia: vi.fn() }));
 afterEach(cleanup);
 it("keeps playback controls named for their actions, not icon components", () => {
   const { container } = render(
@@ -157,9 +165,11 @@ it.each(["buzz-media://localhost", "http://buzz-media.localhost"])(
         onOpenLink={() => false}
       />,
     );
-    const link = screen.getByRole("link", { name: "Download image" });
-    expect(link).toHaveAttribute("href", source);
-    expect(link).toHaveAttribute("download", "");
+    vi.mocked(downloadNativeMedia).mockResolvedValue(undefined);
+    const link = screen.getByRole("button", { name: "Download image" });
+    expect(link).not.toHaveAttribute("href");
+    fireEvent.click(link);
+    expect(downloadNativeMedia).toHaveBeenCalledWith(source);
     expect(
       screen.queryByRole("link", { name: "Open image in browser" }),
     ).toBeNull();
@@ -179,5 +189,25 @@ it("does not offer an image download for a native lookalike", () => {
       onOpenLink={() => false}
     />,
   );
-  expect(screen.queryByRole("link", { name: "Download image" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Download image" })).toBeNull();
+});
+
+it("reports native image download failures without navigating", async () => {
+  const url = `https://relay.test/media/${"a".repeat(64)}.png`;
+  vi.mocked(downloadNativeMedia).mockRejectedValueOnce(
+    new Error("unavailable"),
+  );
+  render(
+    <ImageReviewStage
+      attachments={[{ url, kind: "image" }]}
+      selectedUrl={url}
+      media={() => `buzz-media://localhost/${encodeURIComponent(url)}`}
+      select={() => {}}
+      onOpenLink={() => false}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Download image" }));
+  await waitFor(() =>
+    expect(screen.getByRole("alert")).toHaveTextContent("Download failed"),
+  );
 });

@@ -766,28 +766,110 @@ pub(crate) fn media_protocol<R: tauri::Runtime>(
     });
 }
 
-/// Only allow main-webview downloads that resolve to authenticated relay media.
-/// Wry chooses a collision-free path in Downloads; never use a page-provided path.
-pub(crate) fn is_media_download_url(url: &Url) -> bool {
+/// Decode only the custom scheme URLs emitted by convertFileSrc. The media URL
+/// is independently checked before any authenticated request is made.
+fn download_target(source: &str) -> Option<Url> {
+    let url = Url::parse(source).ok()?;
     let host_ok = match url.scheme() {
         "buzz-media" => url.host_str() == Some("localhost"),
-        // WKWebView maps custom schemes to this localhost origin on some platforms.
         "http" => url.host_str() == Some("buzz-media.localhost"),
         _ => false,
     };
-    host_ok
-        && url.port().is_none()
-        && url.username().is_empty()
-        && url.password().is_none()
-        && url.query().is_none()
-        && url.fragment().is_none()
-        && !url.path().is_empty()
-        && url.path().starts_with('/')
-        && percent_encoding::percent_decode_str(&url.path()[1..])
-            .decode_utf8()
-            .ok()
-            .and_then(|target| media_url(&target))
-            .is_some()
+    if !host_ok
+        || url.port().is_some()
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        return None;
+    }
+    let target = percent_encoding::percent_decode_str(url.path().strip_prefix('/')?)
+        .decode_utf8()
+        .ok()?;
+    media_url(&target)
+}
+
+/// Never interpret untrusted attachment names as paths. A missing or invalid name
+/// falls back to the validated blob's basename.
+fn download_name<'a>(name: &'a str, url: &'a Url) -> &'a str {
+    if !name.is_empty()
+        && name.len() <= 255
+        && name != "."
+        && name != ".."
+        && !name
+            .chars()
+            .any(|c| c.is_control() || matches!(c, '/' | '\\' | ':'))
+    {
+        name
+    } else {
+        url.path().rsplit('/').next().unwrap_or("media")
+    }
+}
+
+fn save_download(
+    directory: &std::path::Path,
+    filename: &str,
+    body: &[u8],
+) -> Result<std::path::PathBuf> {
+    use std::io::Write as _;
+    let (stem, ext) = filename
+        .rsplit_once('.')
+        .filter(|(stem, _)| !stem.is_empty())
+        .map_or((filename, ""), |(stem, ext)| (stem, ext));
+    for index in 0..1000 {
+        let candidate = if index == 0 {
+            filename.to_owned()
+        } else if ext.is_empty() {
+            format!("{stem} ({index})")
+        } else {
+            format!("{stem} ({index}).{ext}")
+        };
+        let path = directory.join(candidate);
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+        {
+            Ok(mut file) => {
+                if let Err(error) = file.write_all(body).and_then(|_| file.sync_all()) {
+                    drop(file);
+                    let _ = std::fs::remove_file(&path);
+                    return Err(format!("Could not save media: {error}"));
+                }
+                return Ok(path);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(format!("Could not save media: {error}")),
+        }
+    }
+    Err("Too many files with this name".into())
+}
+
+/// Persist an authenticated bounded response without replacing an existing file.
+/// The host, not the webview, owns the save path and collision policy.
+#[tauri::command]
+pub(crate) async fn media_download<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    host: tauri::State<'_, IdentityHost>,
+    source: String,
+    name: String,
+) -> Result<()> {
+    use tauri::Manager as _;
+    let url = download_target(&source).ok_or("Invalid media URL")?;
+    let filename = download_name(&name, &url).to_owned();
+    let directory = app
+        .path()
+        .download_dir()
+        .map_err(|_| "Downloads unavailable")?;
+    let response = fetch_media(host.inner(), url, None)
+        .await
+        .map_err(|_| "Media download failed")?;
+    let body = response.into_body();
+    tauri::async_runtime::spawn_blocking(move || save_download(&directory, &filename, &body))
+        .await
+        .map_err(|_| "Media download interrupted".to_owned())??;
+    Ok(())
 }
 
 /// `buzz-media://localhost/<percent-encoded relay media URL>`, the shape of

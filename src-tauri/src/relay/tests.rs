@@ -628,7 +628,7 @@ fn media_proxy_only_reaches_relay_blobs() {
 }
 
 #[test]
-fn main_webview_downloads_only_authenticated_media_urls() {
+fn native_downloads_only_accept_authenticated_media_urls() {
     let hash = "a".repeat(64);
     let target = format!("https://relay.test/media/{hash}.pdf");
     let encoded: String =
@@ -638,7 +638,7 @@ fn main_webview_downloads_only_authenticated_media_urls() {
         format!("buzz-media://localhost/{encoded}"),
         format!("http://buzz-media.localhost/{encoded}"),
     ] {
-        assert!(is_media_download_url(&Url::parse(&url).unwrap()), "{url}");
+        assert!(download_target(&url).is_some(), "{url}");
     }
     for url in [
         format!("buzz-media://evil.test/{encoded}"),
@@ -656,8 +656,32 @@ fn main_webview_downloads_only_authenticated_media_urls() {
             )
         ),
     ] {
-        assert!(!is_media_download_url(&Url::parse(&url).unwrap()), "{url}");
+        assert!(download_target(&url).is_none(), "{url}");
     }
+}
+
+#[test]
+fn download_names_are_safe_and_collisions_do_not_overwrite() {
+    let url = Url::parse(&format!("https://relay.test/media/{}.pdf", "a".repeat(64))).unwrap();
+    for invalid in ["", ".", "..", "../secret", "a/b", "a\\b", "a:b", "a\n.txt"] {
+        assert_eq!(
+            download_name(invalid, &url),
+            url.path().rsplit('/').next().unwrap()
+        );
+    }
+    assert_eq!(
+        download_name("Annual report.pdf", &url),
+        "Annual report.pdf"
+    );
+    let dir = std::env::temp_dir().join(format!("buzz-download-test-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir(&dir).unwrap();
+    let first = save_download(&dir, "report.pdf", b"first").unwrap();
+    let second = save_download(&dir, "report.pdf", b"second").unwrap();
+    assert_eq!(first.file_name().unwrap(), "report.pdf");
+    assert_eq!(second.file_name().unwrap(), "report (1).pdf");
+    assert_eq!(std::fs::read(&first).unwrap(), b"first");
+    assert_eq!(std::fs::read(&second).unwrap(), b"second");
+    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]

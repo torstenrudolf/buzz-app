@@ -18,6 +18,7 @@
     "allow-relay-direct-message",
     "allow-relay-upload",
     "allow-relay-upload-cancel",
+    "allow-media-download",
     "allow-get-os-idle-seconds",
     "allow-plugin-import-folder",
     "allow-plugin-import-git",

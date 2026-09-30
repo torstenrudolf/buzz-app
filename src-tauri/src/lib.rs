@@ -18,8 +18,9 @@ use os_idle::get_os_idle_seconds;
 mod relay;
 use identity::{identity_create, identity_export, identity_import, identity_restore, IdentityHost};
 use relay::{
-    relay_channel_publish, relay_channel_sign, relay_direct_message, relay_http, relay_kit_decode,
-    relay_kit_prepare, relay_kit_sign, relay_sign, relay_upload, relay_upload_cancel, relay_workflow_runs,
+    media_download, relay_channel_publish, relay_channel_sign, relay_direct_message, relay_http,
+    relay_kit_decode, relay_kit_prepare, relay_kit_sign, relay_sign, relay_upload,
+    relay_upload_cancel, relay_workflow_runs,
 };
 mod terminal;
 use agent_models::{agent_models_begin, agent_models_cancel, agent_models_run, ModelHost};
@@ -386,6 +387,7 @@ fn commands<R: tauri::Runtime>() -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Sen
         relay_direct_message,
         relay_upload,
         relay_upload_cancel,
+        media_download,
         get_os_idle_seconds,
         plugin_import_folder,
         plugin_import_git,
@@ -456,21 +458,6 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
-            // Build the configured main view here so its download policy is installed
-            // before the first navigation. The embedded Buzz Browser remains separate.
-            for config in &app.config().app.windows {
-                if config.label == "main" {
-                    tauri::WebviewWindowBuilder::from_config(app, config)?
-                        .on_download(|_, event| match event {
-                            tauri::webview::DownloadEvent::Requested { url, .. } => {
-                                relay::is_media_download_url(&url)
-                            }
-                            tauri::webview::DownloadEvent::Finished { .. } => true,
-                            _ => false,
-                        })
-                        .build()?;
-                }
-            }
             deep_links::setup(app.handle());
             // Only app-owned storage is created. Preview uses the OS-resolved legacy
             // parent, never a browser-supplied path or a different environment source.

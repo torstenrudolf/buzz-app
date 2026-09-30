@@ -19,6 +19,7 @@ import {
   safeOpenUrl,
 } from "./attachment-source";
 import styles from "./Messages.module.css";
+import { downloadNativeMedia } from "./native-download";
 
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 4;
@@ -55,9 +56,9 @@ export function ImageReviewStage({
   );
   const selected = attachments[selectedIndex] ?? attachments[0];
   const source = selected ? media(selected.url) : undefined;
-  const proxySource = source
-    ? isProxySource(source) || isNativeMediaSource(source)
-    : false;
+  const nativeSource = source ? isNativeMediaSource(source) : false;
+  const proxySource = source ? isProxySource(source) || nativeSource : false;
+  const [downloadError, setDownloadError] = useState(false);
   const externalSource = source ? safeOpenUrl(source) && !proxySource : false;
   const {
     zoom,
@@ -286,7 +287,23 @@ export function ImageReviewStage({
             {Math.round(zoom * 100)}%
           </Button>
         </div>
-        {proxySource && (
+        {nativeSource && source && (
+          <IconButton
+            size="compact"
+            type="button"
+            aria-label="Download image"
+            title="Download image"
+            onClick={() => {
+              setDownloadError(false);
+              void downloadNativeMedia(source).catch(() =>
+                setDownloadError(true),
+              );
+            }}
+            icon={<DownloadIcon size={17} />}
+          />
+        )}
+        {downloadError && <span role="alert">Download failed</span>}
+        {proxySource && !nativeSource && (
           <IconButton
             nativeButton={false}
             role="link"
