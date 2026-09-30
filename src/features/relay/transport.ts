@@ -984,7 +984,9 @@ export function admittedSignedWorkflowRead(
   signal: AbortSignal,
 ): Promise<Response> {
   const lane = signedAdmissions(relayOrigin(origin), viewer).api;
-  return lane.prepare(() => admittedApiRequest(lane, request, signal));
+  return lane.prepare(() =>
+    admitSignedRequest(origin, viewer, request, signal),
+  );
 }
 
 export const admitSignedRequest = (

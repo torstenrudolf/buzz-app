@@ -349,10 +349,7 @@ export async function connectNativeTransport(
               headers: Record<string, string>;
               body: string;
             }>("relay_publish_read_state", { community: origin, event });
-            return new Response(result.body, {
-              status: result.status,
-              headers: result.headers,
-            });
+            return nativeResponse(result);
           },
           signal,
         );
