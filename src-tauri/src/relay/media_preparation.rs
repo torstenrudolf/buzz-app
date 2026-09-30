@@ -202,7 +202,7 @@ fn allowed_mode(mode: &str, bytes: &[u8]) -> Option<(&'static str, bool, bool)> 
         }
         "voice:mp3"
             if (header.starts_with(b"ID3")
-                || header.get(0) == Some(&0xff)
+                || header.first() == Some(&0xff)
                     && header
                         .get(1)
                         .is_some_and(|b| b & 0xe0 == 0xe0 && b & 6 != 0))
@@ -239,6 +239,18 @@ fn output_size(path: &Path, limit: u64) -> Result<(), &'static str> {
     }
 }
 
+fn private_tempdir_in(parent: &Path) -> std::io::Result<tempfile::TempDir> {
+    let mut builder = tempfile::Builder::new();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        // Set permissions during creation: the source must never become readable
+        // through a shared temporary parent, even briefly.
+        builder.permissions(std::fs::Permissions::from_mode(0o700));
+    }
+    builder.tempdir_in(parent)
+}
+
 pub(super) async fn prepare(
     body: Vec<u8>,
     mode: &str,
@@ -261,7 +273,7 @@ pub(super) async fn prepare(
         .get_or_init(|| Semaphore::new(2))
         .try_acquire()
         .map_err(|_| PreparationError::Capacity)?;
-    let directory = tempfile::tempdir().map_err(|_| PreparationError::Io)?;
+    let directory = private_tempdir_in(&std::env::temp_dir()).map_err(|_| PreparationError::Io)?;
     let source = directory.path().join("source");
     let output = directory.path().join(if image {
         "prepared.jpg"
@@ -402,6 +414,26 @@ pub(super) async fn prepare(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn preparation_source_stays_private_under_a_shared_temp_parent() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let parent = tempfile::tempdir().unwrap();
+        std::fs::set_permissions(parent.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+        let directory = private_tempdir_in(parent.path()).unwrap();
+        let source = directory.path().join("source");
+        std::fs::write(&source, b"private original media").unwrap();
+        let mode = directory.path().metadata().unwrap().permissions().mode();
+        assert_eq!(
+            mode & 0o077,
+            0,
+            "other users must not traverse the directory"
+        );
+        assert_ne!(mode & 0o700, 0, "the owner must retain access");
+        assert!(source.exists());
+    }
     #[tokio::test]
     async fn converts_video_with_fixed_demuxer_and_strips_input_metadata() {
         let dir = tempfile::tempdir().unwrap();
