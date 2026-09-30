@@ -382,7 +382,6 @@ fn shared_kind_five_signer_accepts_message_and_reaction_deletion_only_in_broker_
     assert!(validate_event("https://relay.test", &event).is_err());
 }
 
-
 #[test]
 fn native_write_commands_reach_handlers_through_production_ipc() {
     use tauri::test::{get_ipc_response, mock_builder, INVOKE_KEY};
