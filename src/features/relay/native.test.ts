@@ -479,7 +479,6 @@ it.each(["online", "tampered", "wrong-author", "empty"] as const)(
   },
 );
 
-
 it.each(["message", "reaction"] as const)(
   "publishes native %s removal with the broker's kind-5 tags",
   async (target) => {

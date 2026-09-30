@@ -26,7 +26,6 @@ import {
 } from "./transport";
 
 export const nativeWriteKinds = [
-
   30078,
   7,
   9,
